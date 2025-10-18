@@ -1,0 +1,14 @@
+You are given a list of predefined categories organized hierarchically, and a list of reasons that customers mentioned during calls.
+
+Each reason should be matched to the best fitting category from the list.
+
+Return your output as a CSV with these columns:
+Index, Original Reason Text, Best Matching Category (L1 - L2 - L3), L3 Score (1-5), L2 Score (1-5), L1 Score (1-5)
+
+Only output the CSV — no extra commentary.
+
+# Categories
+{categories}
+
+# Reasons
+{reasons_str}

@@ -1,0 +1,13 @@
+I have a 3-level categorization of customer intents from call transcripts in the "Categories" section. 
+I also have a snippet from a customer service transcript.
+
+Please label each line in the transcript using one of the existing Level 3 (L3) intent names. 
+Output a CSV with the format: Intent,LineNumber
+
+Only use the L3 categories listed. Do not create new intents. Avoid vague or overlapping labels.
+
+# Categories
+{categories}
+
+# Transcript
+{conv}
