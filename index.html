@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Transcript Analysis Pipeline</title>
+  <title>Transcript Analysis Pipeline - Integrated</title>
   <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     * {
@@ -14,9 +14,7 @@
     
     body {
       font-family: 'Open Sans', sans-serif;
-      font-weight: normal;
-      background: var(--unnamed-color-e1eaf2, #E1EAF2) 0% 0% no-repeat padding-box;
-      opacity: 1;
+      background: #E1EAF2;
       min-height: 100vh;
     }
     
@@ -71,14 +69,12 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       border: 1px solid #e2e8f0;
       margin-bottom: 1.5rem;
-      width: 100%;
     }
     
     .card-header {
       padding: 32px;
       border-bottom: 1px solid #e2e8f0;
-      background: #F6F9FB 0% 0% no-repeat padding-box;
-      opacity: 1;
+      background: #F6F9FB;
     }
     
     .card-header h2 {
@@ -167,7 +163,7 @@
       margin-bottom: 0.5rem;
     }
     
-    .form-group input {
+    .form-group input, .form-group textarea {
       width: 100%;
       padding: 0.625rem 1rem;
       border: 1px solid #cbd5e1;
@@ -177,26 +173,15 @@
     }
     
     .form-group textarea {
-      width: 100%;
-      padding: 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      font-size: 13px;
       font-family: 'Courier New', monospace;
       resize: vertical;
+      min-height: 200px;
     }
     
-    .form-group input:focus,
-    .form-group textarea:focus {
+    .form-group input:focus, .form-group textarea:focus {
       outline: none;
       border-color: #3b82f6;
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 1.5rem;
     }
     
     table {
@@ -219,8 +204,6 @@
       letter-spacing: 0.05em;
       cursor: pointer;
       user-select: none;
-      position: relative;
-      white-space: nowrap;
     }
     
     th:hover {
@@ -230,20 +213,16 @@
     th.sortable::after {
       content: ' ↕';
       opacity: 0.3;
-      font-size: 13px;
-      margin-left: 4px;
     }
     
     th.sorted-asc::after {
       content: ' ↑';
       opacity: 1;
-      margin-left: 4px;
     }
     
     th.sorted-desc::after {
       content: ' ↓';
       opacity: 1;
-      margin-left: 4px;
     }
     
     th.text-right {
@@ -256,7 +235,6 @@
       border-bottom: 1px solid #e2e8f0;
       font-size: 13px;
       color: #2e2e2e;
-      font-weight: normal;
     }
     
     td.text-right {
@@ -264,7 +242,7 @@
     }
     
     tbody tr:hover {
-      background: var(--unnamed-color-f6f9fb, #F6F9FB) 0% 0% no-repeat padding-box;
+      background: #F6F9FB;
     }
     
     .alert {
@@ -286,6 +264,12 @@
       background: #eff6ff;
       border: 1px solid #bfdbfe;
       color: #1e40af;
+    }
+    
+    .alert-success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
     }
     
     .spinner {
@@ -315,13 +299,6 @@
     
     .log-line {
       margin-bottom: 0.25rem;
-    }
-    
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin-top: 1rem;
     }
     
     .hidden {
@@ -357,6 +334,12 @@
       background: #dcfce7;
       color: #166534;
     }
+    
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
   </style>
 </head>
 <body>
@@ -365,13 +348,13 @@
       <div class="logo">📊</div>
       <div class="title">
         <h1>Transcript Analysis Pipeline</h1>
-        <p>Two-step workflow: Filter by intent → Run analysis</p>
+        <p>Generate intents → Select intent → Analyze calls</p>
       </div>
     </div>
   </div>
   
   <div class="container">
-    <!-- Error Display -->
+    <!-- Error/Info Display -->
     <div id="errorAlert" class="alert alert-error hidden">
       <span>⚠️</span>
       <div>
@@ -380,52 +363,28 @@
       </div>
     </div>
     
-    <!-- Info Display -->
     <div id="infoAlert" class="alert alert-info hidden">
       <span>ℹ️</span>
       <div id="infoMessage"></div>
     </div>
     
-    <!-- Step 1: Upload Files -->
-    <div id="step1" class="step">
-      <!-- Intent Mapping File -->
+    <!-- PHASE 1: Upload and Generate Intents -->
+    <div id="phase1" class="phase">
+      <!-- Upload ASR File -->
       <div class="card">
         <div class="card-header">
-          <h2>📋 Step 1a: Upload Intent Mapping File</h2>
-          <p>Upload your reasons_mapped_001.csv file (contains intent classifications)</p>
-        </div>
-        <div class="card-body">
-          <div class="upload-area">
-            <div class="upload-icon" id="intentIcon">📄</div>
-            <h3 id="intentTitle" style="margin-bottom: 0.5rem;">Select Intent Mapping File</h3>
-            <p style="color: #64748b; font-size: 0.875rem;" id="intentDesc">CSV file with Intent_Category and Filename columns</p>
-            <label for="intentFileInput" class="btn btn-primary" style="margin-top: 1rem;">
-              <span>📤</span> Select File
-            </label>
-            <input type="file" id="intentFileInput" accept=".csv,.tsv">
-          </div>
-          <div id="intentStatus" class="hidden" style="margin-top: 1rem;">
-            <span class="status-badge status-uploaded">✓ Uploaded</span>
-            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="intentFileName"></span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- ASR File -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📁 Step 1b: Upload Full ASR File</h2>
-          <p>Upload your asr-whisper_001.csv file (full transcript data)</p>
+          <h2>📁 Step 1: Upload ASR/Transcript File</h2>
+          <p>Upload your asr-whisper_001.csv or nx_transcripts.csv file</p>
         </div>
         <div class="card-body">
           <div class="upload-area">
             <div class="upload-icon" id="asrIcon">📁</div>
             <h3 id="asrTitle" style="margin-bottom: 0.5rem;">Select ASR File</h3>
-            <p style="color: #64748b; font-size: 0.875rem;" id="asrDesc">Full transcript CSV file</p>
+            <p style="color: #64748b; font-size: 0.875rem;">CSV file with transcript data</p>
             <label for="asrFileInput" class="btn btn-primary" style="margin-top: 1rem;">
               <span>📤</span> Select File
             </label>
-            <input type="file" id="asrFileInput" accept=".csv,.tsv">
+            <input type="file" id="asrFileInput" accept=".csv">
           </div>
           <div id="asrStatus" class="hidden" style="margin-top: 1rem;">
             <span class="status-badge status-uploaded">✓ Uploaded</span>
@@ -434,25 +393,128 @@
         </div>
       </div>
       
-      <!-- Results Table -->
-      <div id="resultsCard" class="card hidden">
+      <!-- Upload Mapping File -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📋 Step 2: Upload Intent Mapping File</h2>
+          <p>Upload your L123Intent_AgentTaskLabel_Mapping.xlsx file</p>
+        </div>
+        <div class="card-body">
+          <div class="upload-area">
+            <div class="upload-icon" id="mappingIcon">📄</div>
+            <h3 id="mappingTitle" style="margin-bottom: 0.5rem;">Select Mapping File</h3>
+            <p style="color: #64748b; font-size: 0.875rem;">Excel file with L1/L2/L3 taxonomy</p>
+            <label for="mappingFileInput" class="btn btn-primary" style="margin-top: 1rem;">
+              <span>📤</span> Select File
+            </label>
+            <input type="file" id="mappingFileInput" accept=".xlsx,.xls">
+          </div>
+          <div id="mappingStatus" class="hidden" style="margin-top: 1rem;">
+            <span class="status-badge status-uploaded">✓ Uploaded</span>
+            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="mappingFileName"></span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Company Information -->
+      <div id="companyCard" class="card hidden">
+        <div class="card-header">
+          <h2>🏢 Step 3: Enter Company Information</h2>
+          <p>Provide context for AI intent generation</p>
+        </div>
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Company Name *</label>
+              <input type="text" id="companyName" placeholder="e.g., Acme Financial Services">
+            </div>
+            <div class="form-group">
+              <label>File Format</label>
+              <select id="formatSelect" style="width: 100%; padding: 0.625rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px;">
+                <option value="whisper">Whisper Format</option>
+                <option value="nx">NX Format</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Company Description *</label>
+            <input type="text" id="companyDescription" placeholder="e.g., A leading provider of banking and investment services">
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Maximum Calls to Process *</label>
+              <input type="number" id="maxCalls" value="100" min="10" max="50000" placeholder="100">
+              <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">
+                Start with 100 calls (~30 min). Increase after testing.
+              </p>
+            </div>
+            <div class="form-group">
+              <label>Estimated Time</label>
+              <div style="padding: 0.625rem 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <span id="estimatedTime" style="font-weight: 600; color: #3b82f6;">~30 minutes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Prompt Editor -->
+      <div id="promptCard" class="card hidden">
+        <div class="card-header">
+          <h2>✏️ Step 4: Review AI Prompt (Optional)</h2>
+          <p>Customize the prompt used for intent generation</p>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Intent Generation Prompt</label>
+            <textarea id="promptTemplate"></textarea>
+            <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.5rem;">
+              Variables: {company_name}, {company_description}, {conv}
+            </p>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-secondary" onclick="resetToDefaultPrompt()">Reset to Default</button>
+            <button class="btn btn-primary" onclick="generateIntents()">
+              <span>🚀</span> Generate Intents
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Progress Log -->
+      <div id="progressCard" class="card hidden">
+        <div class="card-header">
+          <h2 id="progressTitle">⏳ Generating Intents...</h2>
+        </div>
+        <div class="card-body">
+          <div class="log-container" id="logContainer"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- PHASE 2: Intent Selection -->
+    <div id="phase2" class="phase hidden">
+      <button class="btn btn-secondary" onclick="startOver()" style="margin-bottom: 1rem;">
+        ← Start Over
+      </button>
+      
+      <div class="card">
         <div class="card-header">
           <div class="flex-between">
             <div>
-              <h2>📊 Step 2: Select Intent to Analyze</h2>
+              <h2>📊 Select Intent to Analyze</h2>
               <p id="intentCount"></p>
             </div>
-            <button class="btn btn-secondary" onclick="resetUpload()">Start Over</button>
           </div>
         </div>
         <div style="overflow-x: auto;">
           <table id="resultsTable">
             <thead>
               <tr>
-                <th class="sortable" data-sort="level1" onclick="sortTable('level1')">Category</th>
+                <th class="sortable sorted-desc" data-sort="level1" onclick="sortTable('level1')">Category</th>
                 <th class="sortable" data-sort="level2" onclick="sortTable('level2')">Topic</th>
                 <th class="sortable" data-sort="level3" onclick="sortTable('level3')">Intent</th>
-                <th class="sortable text-right sorted-desc" data-sort="volume" onclick="sortTable('volume')">Volume</th>
+                <th class="sortable text-right" data-sort="volume" onclick="sortTable('volume')">Volume</th>
                 <th class="sortable text-right" data-sort="percentage" onclick="sortTable('percentage')">% of Total</th>
                 <th class="text-right">Action</th>
               </tr>
@@ -463,20 +525,20 @@
       </div>
     </div>
     
-    <!-- Step 2: Configure & Run -->
-    <div id="step2" class="step hidden">
-      <button class="btn btn-secondary" onclick="goToStep1()" style="margin-bottom: 1rem;">
+    <!-- PHASE 3: Run Analysis -->
+    <div id="phase3" class="phase hidden">
+      <button class="btn btn-secondary" onclick="backToIntentSelection()" style="margin-bottom: 1rem;">
         ← Back to Intent Selection
       </button>
       
-      <!-- Selected Intent -->
+      <!-- Selected Intent Display -->
       <div class="card" style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-color: #93c5fd;">
         <div class="card-body">
           <p style="font-size: 0.875rem; color: #1e40af; font-weight: 500; margin-bottom: 0.5rem;">Selected Intent</p>
           <h2 style="font-size: 1.5rem; font-weight: 700; color: #0f172a;" id="selectedIntentName"></h2>
           <div style="display: flex; gap: 1.5rem; margin-top: 1rem; font-size: 0.875rem;">
             <span style="color: #64748b;">
-              <strong id="selectedIntentVolume"></strong> calls will be analyzed
+              <strong id="selectedIntentVolume"></strong> calls
             </span>
             <span style="color: #64748b;">
               <strong id="selectedIntentPercent"></strong> of total
@@ -498,7 +560,7 @@
             </div>
           </div>
           
-          <div class="stats-grid">
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.5rem;">
             <button class="btn btn-secondary" onclick="downloadFile('results')" style="width: 100%;">
               📥 Download Results CSV
             </button>
@@ -512,11 +574,11 @@
         </div>
       </div>
       
-      <!-- Configuration Form -->
+      <!-- Configuration -->
       <div id="configForm">
         <div class="card">
           <div class="card-header">
-            <h2>⚙️ Pipeline Configuration</h2>
+            <h2>⚙️ Analysis Configuration</h2>
           </div>
           <div class="card-body">
             <div class="form-grid">
@@ -539,37 +601,23 @@
             </div>
           </div>
         </div>
-        
-        <!-- Prompt Editor -->
-        <div class="card">
-          <div class="card-header">
-            <h2>✏️ LLM Analysis Prompt</h2>
-            <p>Review and customize the prompt used for AI analysis</p>
-          </div>
-          <div class="card-body">
-            <div class="form-group">
-              <label>Prompt Template (Editable)</label>
-              <textarea id="promptTemplate" rows="15" style="font-family: 'Courier New', monospace; width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px;"></textarea>
-            </div>
-          </div>
-        </div>
       </div>
       
-      <!-- Progress Log -->
-      <div id="progressCard" class="card hidden">
+      <!-- Analysis Progress -->
+      <div id="analysisProgressCard" class="card hidden">
         <div class="card-header">
-          <h2 id="progressTitle">⏳ Processing...</h2>
+          <h2 id="analysisProgressTitle">⏳ Running Analysis...</h2>
         </div>
         <div class="card-body">
-          <div class="log-container" id="logContainer"></div>
+          <div class="log-container" id="analysisLogContainer"></div>
         </div>
       </div>
       
       <!-- Action Buttons -->
       <div class="btn-group" id="actionButtons">
-        <button class="btn btn-secondary" onclick="goToStep1()" id="cancelBtn">Cancel</button>
-        <button class="btn btn-primary" onclick="runAnalysis()" id="runBtn">
-          ▶️ Filter & Run Analysis
+        <button class="btn btn-secondary" onclick="backToIntentSelection()">Cancel</button>
+        <button class="btn btn-primary" onclick="runAnalysis()">
+          ▶️ Run Analysis
         </button>
       </div>
     </div>
@@ -577,110 +625,76 @@
   
   <script>
     const API_BASE = 'http://localhost:5000';
-    let intentMappingFile = null;
+    
+    // State variables
     let asrFile = null;
+    let mappingFile = null;
+    let categoriesTxt = null;
     let intentData = null;
     let selectedIntent = null;
     let pipelineResults = null;
     let currentSort = { column: 'volume', direction: 'desc' };
     
-    // Default prompt template
-    const defaultPrompt = `You are analyzing customer service calls. Provide detailed, specific analysis for each call.
+    // Default prompt
+    const defaultPrompt = `You are analyzing customer service conversations for {company_name}.
 
-For EACH call above, provide comprehensive analysis:
+Company Description: {company_description}
 
-CALL_ID: [exact filename]
-PRIMARY_INTENT: [Specific customer need or request in 4-7 words]
-INTENT_CATEGORY: [Broader category this falls under]
-INTENT_EXPLANATION: [2-3 sentences explaining WHY you classified it this way. Quote specific words/phrases the customer said as evidence.]
+Please analyze the following conversation and identify the primary customer intent in 5-10 words.
 
-AGENT_TASKS: [Specific actions the agent performed, comma-separated]
-TASK_BREAKDOWN: [Numbered list with detailed explanations]
-1. [Task Name] - [Describe specifically what the agent did and how]
-2. [Task Name] - [Describe the agent's actions in detail]
-3. [Task Name] - [Be specific about the steps taken]
+The intent should:
+- Be specific to what the customer wants to accomplish
+- Focus on the customer's goal, not the agent's actions
+- Be phrased from the customer's perspective
+- Be concise and actionable
 
-RESOLUTION_STATUS: [FULLY_RESOLVED or PARTIAL_RESOLUTION or NOT_RESOLVED]
-RESOLUTION_CONFIDENCE: [1-5, where 5 = very confident]
-RESOLUTION_EXPLANATION: [2 sentences: What was resolved? What evidence shows this?]
+Conversation:
+{conv}
 
-AUTOMATION_SCORE: [1-100, where 100 = easily automatable]
-AUTOMATION_REASONING: [2 sentences: Why this score? What factors make it more or less automatable?]
+Respond with ONLY the intent phrase, no additional commentary.
 
-CRITICAL REQUIREMENTS:
-- Be SPECIFIC - cite actual phrases from transcripts
-- NO generic responses - make each analysis unique
-- EXPLAIN your reasoning with evidence
-- Use exact filenames provided`;
+Examples of good intents:
+- "Update billing address for account"
+- "Report unauthorized transaction on credit card"
+- "Request refund for cancelled service"
+- "Inquire about product warranty coverage"
+
+Your response (intent only):`;
     
-    // Set default prompt on page load
+    // Initialize
     document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('promptTemplate').value = defaultPrompt;
+      
+      // Update estimated time when max calls changes
+      document.getElementById('maxCalls').addEventListener('input', updateEstimatedTime);
+      updateEstimatedTime(); // Initial calculation
     });
     
-    // File upload handlers
-    document.getElementById('intentFileInput').addEventListener('change', handleIntentFileUpload);
-    document.getElementById('asrFileInput').addEventListener('change', handleASRFileUpload);
-    
-    async function handleIntentFileUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    function updateEstimatedTime() {
+      const maxCalls = parseInt(document.getElementById('maxCalls').value) || 100;
+      const minutesPerCall = 0.3; // ~20 seconds per call average
+      const totalMinutes = Math.ceil(maxCalls * minutesPerCall);
       
-      console.log('📄 Uploading intent file:', file.name);
-      showLoading('intent');
-      hideError();
-      
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      try {
-        console.log('Sending to:', `${API_BASE}/api/upload-intent-mapping`);
-        const response = await fetch(`${API_BASE}/api/upload-intent-mapping`, {
-          method: 'POST',
-          body: formData
-        });
-        
-        console.log('Response status:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Upload failed:', errorText);
-          throw new Error('Failed to upload intent mapping file');
-        }
-        
-        const result = await response.json();
-        console.log('Upload result:', result);
-        
-        intentMappingFile = result.file_path;
-        intentData = result.intents;
-        
-        console.log('Intent mapping file path:', intentMappingFile);
-        console.log('Number of intents found:', intentData ? intentData.length : 0);
-        
-        document.getElementById('intentStatus').classList.remove('hidden');
-        document.getElementById('intentFileName').textContent = file.name;
-        hideLoading('intent');
-        
-        if (intentData && intentData.length > 0) {
-          showInfo(`✓ Intent mapping uploaded: ${result.total_intents} intents found`);
-        } else {
-          showError('⚠️ No intents found in file. Check if file has Intent_Category and L3_Score columns.');
-        }
-        
-        checkBothFilesUploaded();
-        
-      } catch (error) {
-        console.error('Error uploading intent file:', error);
-        showError('Failed to upload intent mapping file: ' + error.message);
-        hideLoading('intent');
+      let timeText;
+      if (totalMinutes < 60) {
+        timeText = `~${totalMinutes} minutes`;
+      } else {
+        const hours = Math.floor(totalMinutes / 60);
+        const mins = totalMinutes % 60;
+        timeText = `~${hours}h ${mins}m`;
       }
+      
+      document.getElementById('estimatedTime').textContent = timeText;
     }
+    
+    // File upload handlers
+    document.getElementById('asrFileInput').addEventListener('change', handleASRFileUpload);
+    document.getElementById('mappingFileInput').addEventListener('change', handleMappingFileUpload);
     
     async function handleASRFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       
-      console.log('📁 Uploading ASR file:', file.name);
       showLoading('asr');
       hideError();
       
@@ -688,230 +702,123 @@ CRITICAL REQUIREMENTS:
       formData.append('file', file);
       
       try {
-        console.log('Sending to:', `${API_BASE}/api/upload-asr`);
         const response = await fetch(`${API_BASE}/api/upload-asr`, {
           method: 'POST',
           body: formData
         });
         
-        console.log('Response status:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Upload failed:', errorText);
-          throw new Error('Failed to upload ASR file');
-        }
+        if (!response.ok) throw new Error('Upload failed');
         
         const result = await response.json();
-        console.log('Upload result:', result);
-        
         asrFile = result.file_path;
-        console.log('ASR file path:', asrFile);
         
         document.getElementById('asrStatus').classList.remove('hidden');
-        document.getElementById('asrFileName').textContent = file.name;
+        document.getElementById('asrFileName').textContent = `${file.name} (${result.row_count.toLocaleString()} rows)`;
         hideLoading('asr');
         
-        showInfo('✓ ASR file uploaded successfully');
+        showInfo(`✓ ASR file uploaded: ${result.row_count.toLocaleString()} rows`);
         checkBothFilesUploaded();
         
       } catch (error) {
-        console.error('Error uploading ASR file:', error);
         showError('Failed to upload ASR file: ' + error.message);
         hideLoading('asr');
       }
     }
     
+    async function handleMappingFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      showLoading('mapping');
+      hideError();
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/upload-mapping`, {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) throw new Error('Upload failed');
+        
+        const result = await response.json();
+        mappingFile = result.file_path;
+        categoriesTxt = result.categories_txt;
+        
+        document.getElementById('mappingStatus').classList.remove('hidden');
+        document.getElementById('mappingFileName').textContent = file.name;
+        hideLoading('mapping');
+        
+        showInfo('✓ Mapping file uploaded and converted');
+        checkBothFilesUploaded();
+        
+      } catch (error) {
+        showError('Failed to upload mapping file: ' + error.message);
+        hideLoading('mapping');
+      }
+    }
+    
     function checkBothFilesUploaded() {
-      console.log('Checking if both files uploaded...');
-      console.log('  intentMappingFile:', intentMappingFile);
-      console.log('  asrFile:', asrFile);
-      console.log('  intentData:', intentData ? intentData.length + ' intents' : 'null');
-      
-      if (intentMappingFile && asrFile && intentData) {
-        console.log('✅ Both files uploaded! Displaying results...');
-        displayResults(intentData);
-      } else {
-        console.log('⏳ Waiting for both files...');
+      if (asrFile && mappingFile) {
+        document.getElementById('companyCard').classList.remove('hidden');
+        document.getElementById('promptCard').classList.remove('hidden');
       }
     }
     
-    function showLoading(type) {
-      const icon = document.getElementById(type + 'Icon');
-      const title = document.getElementById(type + 'Title');
-      icon.innerHTML = '<div class="spinner"></div>';
-      title.textContent = 'Processing...';
-    }
-    
-    function hideLoading(type) {
-      const icon = document.getElementById(type + 'Icon');
-      const title = document.getElementById(type + 'Title');
-      icon.textContent = type === 'intent' ? '📄' : '📁';
-      title.textContent = type === 'intent' ? 'Select Intent Mapping File' : 'Select ASR File';
-    }
-    
-    function displayResults(intents) {
-      document.getElementById('resultsCard').classList.remove('hidden');
-      document.getElementById('intentCount').textContent = 
-        `${intents.length} unique intents identified (high confidence L3_Score=5)`;
-      
-      // Sort by default (volume, descending)
-      sortIntentData(intents, 'volume', 'desc');
-      renderTable(intents);
-      updateSortIndicators();
-    }
-    
-    function sortTable(column) {
-      if (!intentData) return;
-      
-      // Toggle direction if same column, otherwise default to descending for numbers, ascending for text
-      if (currentSort.column === column) {
-        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-      } else {
-        currentSort.column = column;
-        currentSort.direction = (column === 'volume' || column === 'percentage') ? 'desc' : 'asc';
-      }
-      
-      sortIntentData(intentData, currentSort.column, currentSort.direction);
-      renderTable(intentData);
-      updateSortIndicators();
-    }
-    
-    function sortIntentData(intents, column, direction) {
-      intents.sort((a, b) => {
-        let aVal = a[column];
-        let bVal = b[column];
-        
-        // Convert to numbers if numeric column
-        if (column === 'volume' || column === 'percentage') {
-          aVal = parseFloat(aVal);
-          bVal = parseFloat(bVal);
-        } else {
-          // String comparison, case insensitive
-          aVal = String(aVal).toLowerCase();
-          bVal = String(bVal).toLowerCase();
-        }
-        
-        if (direction === 'asc') {
-          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-        } else {
-          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-        }
-      });
-    }
-    
-    function updateSortIndicators() {
-      // Remove all sort indicators
-      document.querySelectorAll('th.sortable').forEach(th => {
-        th.classList.remove('sorted-asc', 'sorted-desc');
-      });
-      
-      // Add indicator to current sort column
-      const currentHeader = document.querySelector(`th[data-sort="${currentSort.column}"]`);
-      if (currentHeader) {
-        currentHeader.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
-      }
-    }
-    
-    function renderTable(intents) {
-      const tbody = document.getElementById('resultsBody');
-      tbody.innerHTML = '';
-      
-      intents.forEach((intent) => {
-        const row = tbody.insertRow();
-        row.dataset.intentData = JSON.stringify(intent);
-        row.innerHTML = `
-          <td>${intent.level1}</td>
-          <td>${intent.level2}</td>
-          <td>${intent.level3}</td>
-          <td class="text-right">${intent.volume}</td>
-          <td class="text-right">${intent.percentage}%</td>
-          <td class="text-right">
-            <button class="btn btn-primary" style="height: 28px; padding: 0 1rem; font-size: 13px; white-space: nowrap; border-radius: 4px; background: hsl(201, 100%, 37%);" onclick="selectIntentFromRow(this)">
-              ▶️ Analyze
-            </button>
-          </td>
-        `;
-      });
-    }
-    
-    function selectIntentFromRow(button) {
-      const row = button.closest('tr');
-      selectedIntent = JSON.parse(row.dataset.intentData);
-      goToStep2();
-    }
-    
-    function goToStep2() {
-      document.getElementById('step1').classList.add('hidden');
-      document.getElementById('step2').classList.remove('hidden');
-      
-      document.getElementById('selectedIntentName').textContent = selectedIntent.intent;
-      document.getElementById('selectedIntentVolume').textContent = selectedIntent.volume;
-      document.getElementById('selectedIntentPercent').textContent = selectedIntent.percentage + '%';
-    }
-    
-    function goToStep1() {
-      document.getElementById('step2').classList.add('hidden');
-      document.getElementById('step1').classList.remove('hidden');
-      document.getElementById('resultsDisplay').classList.add('hidden');
-      document.getElementById('progressCard').classList.add('hidden');
-      document.getElementById('configForm').classList.remove('hidden');
-      document.getElementById('actionButtons').classList.remove('hidden');
-    }
-    
-    function resetUpload() {
-      intentMappingFile = null;
-      asrFile = null;
-      intentData = null;
-      document.getElementById('resultsCard').classList.add('hidden');
-      document.getElementById('intentStatus').classList.add('hidden');
-      document.getElementById('asrStatus').classList.add('hidden');
-      document.getElementById('intentFileInput').value = '';
-      document.getElementById('asrFileInput').value = '';
-      hideInfo();
-    }
-    
-    async function runAnalysis() {
-      const clientName = document.getElementById('clientName').value;
-      const outputFolder = document.getElementById('outputFolder').value;
-      const batchSize = parseInt(document.getElementById('batchSize').value);
-      const workers = parseInt(document.getElementById('workers').value);
+    async function generateIntents() {
+      const companyName = document.getElementById('companyName').value.trim();
+      const companyDescription = document.getElementById('companyDescription').value.trim();
       const promptTemplate = document.getElementById('promptTemplate').value;
+      const format = document.getElementById('formatSelect').value;
+      const maxCalls = parseInt(document.getElementById('maxCalls').value) || 100;
       
-      if (!clientName || !outputFolder) {
-        showError('Please fill in all required fields');
+      if (!companyName || !companyDescription) {
+        showError('Please enter company name and description');
         return;
       }
       
+      if (maxCalls < 10 || maxCalls > 50000) {
+        showError('Max calls must be between 10 and 50,000');
+        return;
+      }
+      
+      // Warn for large numbers
+      if (maxCalls > 1000) {
+        const proceed = confirm(
+          `You're about to process ${maxCalls.toLocaleString()} calls.\n` +
+          `This will take approximately ${calculateTime(maxCalls)}.\n\n` +
+          `We recommend starting with 100-500 calls for testing.\n\n` +
+          `Continue with ${maxCalls.toLocaleString()} calls?`
+        );
+        if (!proceed) return;
+      }
+      
       hideError();
-      document.getElementById('configForm').classList.add('hidden');
-      document.getElementById('actionButtons').classList.add('hidden');
+      document.getElementById('companyCard').classList.add('hidden');
+      document.getElementById('promptCard').classList.add('hidden');
       document.getElementById('progressCard').classList.remove('hidden');
       document.getElementById('logContainer').innerHTML = '';
       
       const requestData = {
-        intent: selectedIntent.intent,
-        intent_mapping_file: intentMappingFile,
-        asr_file: asrFile,
-        client: clientName,
-        output_dir: outputFolder,
-        batch_size: batchSize,
-        workers: workers,
-        prompt_template: promptTemplate
+        input_csv: asrFile,
+        categories_txt: categoriesTxt,
+        company_name: companyName,
+        company_description: companyDescription,
+        prompt_template: promptTemplate,
+        format: format,
+        max_calls: maxCalls
       };
       
       try {
-        const response = await fetch(`${API_BASE}/api/filter-and-run`, {
+        const response = await fetch(`${API_BASE}/api/generate-intents`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestData)
         });
         
-        if (!response.ok) {
-          throw new Error('Analysis execution failed');
-        }
+        if (!response.ok) throw new Error('Intent generation failed');
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -931,43 +838,164 @@ CRITICAL REQUIREMENTS:
                 if (data.type === 'progress') {
                   addLogLine(data.message);
                 } else if (data.type === 'complete') {
-                  pipelineResults = data.results;
-                  showSuccess(data.results);
+                  intentData = data.results.intents;
+                  showIntentSelection(data.results);
                 } else if (data.type === 'error') {
                   showError(data.message);
                   document.getElementById('progressCard').classList.add('hidden');
+                  document.getElementById('companyCard').classList.remove('hidden');
+                  document.getElementById('promptCard').classList.remove('hidden');
+                }
+              } catch (e) {
+                console.error('Failed to parse SSE:', e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        showError('Failed to generate intents: ' + error.message);
+        document.getElementById('progressCard').classList.add('hidden');
+        document.getElementById('companyCard').classList.remove('hidden');
+        document.getElementById('promptCard').classList.remove('hidden');
+      }
+    }
+    
+    function calculateTime(calls) {
+      const minutes = Math.ceil(calls * 0.3);
+      if (minutes < 60) return `${minutes} minutes`;
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return `${hours} hour${hours > 1 ? 's' : ''} ${mins} minutes`;
+    }
+    
+    function showIntentSelection(results) {
+      document.getElementById('phase1').classList.add('hidden');
+      document.getElementById('phase2').classList.remove('hidden');
+      document.getElementById('intentCount').textContent = 
+        `${results.total_intents} unique intents identified`;
+      
+      // Store the mapping file for later use
+      window.generatedMappingFile = results.intent_mapping_file;
+      
+      renderTable(intentData);
+    }
+    
+    function renderTable(intents) {
+      const tbody = document.getElementById('resultsBody');
+      tbody.innerHTML = '';
+      
+      intents.forEach((intent) => {
+        const row = tbody.insertRow();
+        row.dataset.intentData = JSON.stringify(intent);
+        row.innerHTML = `
+          <td>${intent.level1}</td>
+          <td>${intent.level2}</td>
+          <td>${intent.level3}</td>
+          <td class="text-right">${intent.volume}</td>
+          <td class="text-right">${intent.percentage}%</td>
+          <td class="text-right">
+            <button class="btn btn-primary" style="height: 28px; padding: 0 1rem; font-size: 13px; border-radius: 4px;" onclick="selectIntent(this)">
+              ▶️ Analyze
+            </button>
+          </td>
+        `;
+      });
+    }
+    
+    function selectIntent(button) {
+      const row = button.closest('tr');
+      selectedIntent = JSON.parse(row.dataset.intentData);
+      
+      document.getElementById('phase2').classList.add('hidden');
+      document.getElementById('phase3').classList.remove('hidden');
+      
+      document.getElementById('selectedIntentName').textContent = selectedIntent.intent;
+      document.getElementById('selectedIntentVolume').textContent = selectedIntent.volume;
+      document.getElementById('selectedIntentPercent').textContent = selectedIntent.percentage + '%';
+    }
+    
+    async function runAnalysis() {
+      const clientName = document.getElementById('clientName').value.trim();
+      const outputFolder = document.getElementById('outputFolder').value.trim();
+      const batchSize = parseInt(document.getElementById('batchSize').value);
+      const workers = parseInt(document.getElementById('workers').value);
+      
+      if (!clientName) {
+        showError('Please enter client name');
+        return;
+      }
+      
+      hideError();
+      document.getElementById('configForm').classList.add('hidden');
+      document.getElementById('actionButtons').classList.add('hidden');
+      document.getElementById('analysisProgressCard').classList.remove('hidden');
+      document.getElementById('analysisLogContainer').innerHTML = '';
+      
+      const requestData = {
+        intent: selectedIntent.intent,
+        intent_mapping_file: window.generatedMappingFile,
+        asr_file: asrFile,
+        client: clientName,
+        output_dir: outputFolder,
+        batch_size: batchSize,
+        workers: workers
+      };
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/filter-and-run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) throw new Error('Analysis failed');
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                if (data.type === 'progress') {
+                  addAnalysisLogLine(data.message);
+                } else if (data.type === 'complete') {
+                  pipelineResults = data.results;
+                  showAnalysisComplete(data.results);
+                } else if (data.type === 'error') {
+                  showError(data.message);
+                  document.getElementById('analysisProgressCard').classList.add('hidden');
                   document.getElementById('configForm').classList.remove('hidden');
                   document.getElementById('actionButtons').classList.remove('hidden');
                 }
               } catch (e) {
-                console.error('Failed to parse SSE data:', e);
+                console.error('Failed to parse SSE:', e);
               }
             }
           }
         }
       } catch (error) {
         showError('Failed to run analysis: ' + error.message);
-        document.getElementById('progressCard').classList.add('hidden');
+        document.getElementById('analysisProgressCard').classList.add('hidden');
         document.getElementById('configForm').classList.remove('hidden');
         document.getElementById('actionButtons').classList.remove('hidden');
       }
     }
     
-    function addLogLine(message) {
-      const logContainer = document.getElementById('logContainer');
-      const line = document.createElement('div');
-      line.className = 'log-line';
-      line.textContent = message;
-      logContainer.appendChild(line);
-      logContainer.scrollTop = logContainer.scrollHeight;
-    }
-    
-    function showSuccess(results) {
-      document.getElementById('progressTitle').textContent = '✅ Analysis Complete';
-      document.getElementById('progressCard').classList.add('hidden');
+    function showAnalysisComplete(results) {
+      document.getElementById('analysisProgressTitle').textContent = '✅ Analysis Complete';
+      document.getElementById('analysisProgressCard').classList.add('hidden');
       document.getElementById('resultsDisplay').classList.remove('hidden');
       document.getElementById('resultsSummary').textContent = 
-        `Successfully processed ${results.total_calls} calls. Filtered ASR file: ${results.filtered_asr_file}`;
+        `Successfully processed ${results.total_calls} calls`;
     }
     
     async function downloadFile(fileType) {
@@ -978,9 +1006,7 @@ CRITICAL REQUIREMENTS:
           `${API_BASE}/api/download/${fileType}?path=${encodeURIComponent(pipelineResults.output_dir)}`
         );
         
-        if (!response.ok) {
-          throw new Error('Failed to download file');
-        }
+        if (!response.ok) throw new Error('Download failed');
         
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -994,6 +1020,102 @@ CRITICAL REQUIREMENTS:
       } catch (error) {
         showError('Failed to download file: ' + error.message);
       }
+    }
+    
+    // Navigation
+    function startOver() {
+      window.location.reload();
+    }
+    
+    function backToIntentSelection() {
+      document.getElementById('phase3').classList.add('hidden');
+      document.getElementById('phase2').classList.remove('hidden');
+      document.getElementById('resultsDisplay').classList.add('hidden');
+      document.getElementById('analysisProgressCard').classList.add('hidden');
+      document.getElementById('configForm').classList.remove('hidden');
+      document.getElementById('actionButtons').classList.remove('hidden');
+    }
+    
+    function resetToDefaultPrompt() {
+      document.getElementById('promptTemplate').value = defaultPrompt;
+    }
+    
+    // Table sorting
+    function sortTable(column) {
+      if (!intentData) return;
+      
+      if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.column = column;
+        currentSort.direction = (column === 'volume' || column === 'percentage') ? 'desc' : 'asc';
+      }
+      
+      intentData.sort((a, b) => {
+        let aVal = a[column];
+        let bVal = b[column];
+        
+        if (column === 'volume' || column === 'percentage') {
+          aVal = parseFloat(aVal);
+          bVal = parseFloat(bVal);
+        } else {
+          aVal = String(aVal).toLowerCase();
+          bVal = String(bVal).toLowerCase();
+        }
+        
+        if (currentSort.direction === 'asc') {
+          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+        } else {
+          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+        }
+      });
+      
+      renderTable(intentData);
+      updateSortIndicators();
+    }
+    
+    function updateSortIndicators() {
+      document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+      });
+      
+      const currentHeader = document.querySelector(`th[data-sort="${currentSort.column}"]`);
+      if (currentHeader) {
+        currentHeader.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+      }
+    }
+    
+    // UI Helpers
+    function showLoading(type) {
+      const icon = document.getElementById(type + 'Icon');
+      const title = document.getElementById(type + 'Title');
+      icon.innerHTML = '<div class="spinner"></div>';
+      title.textContent = 'Processing...';
+    }
+    
+    function hideLoading(type) {
+      const icon = document.getElementById(type + 'Icon');
+      const title = document.getElementById(type + 'Title');
+      icon.textContent = type === 'asr' ? '📁' : '📄';
+      title.textContent = type === 'asr' ? 'Select ASR File' : 'Select Mapping File';
+    }
+    
+    function addLogLine(message) {
+      const logContainer = document.getElementById('logContainer');
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.textContent = message;
+      logContainer.appendChild(line);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+    
+    function addAnalysisLogLine(message) {
+      const logContainer = document.getElementById('analysisLogContainer');
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.textContent = message;
+      logContainer.appendChild(line);
+      logContainer.scrollTop = logContainer.scrollHeight;
     }
     
     function showError(message) {

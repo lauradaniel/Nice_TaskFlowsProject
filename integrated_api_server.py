@@ -18,12 +18,13 @@ import sys
 import time
 import re
 import pandas as pd
+import openpyxl
 
 # Import step modules
 try:
     from annotations import save_convs, get_conversations
     from transcripts import load_whisper_as_nx, load_and_clean_nxtranscript, sample_calls
-    from intents import IntentGenerator, IntentBuilder, categories2dataframe
+    from intents import IntentGenerator, categories2dataframe
     import bedrock
     from default_prompts import STEP1_GENERATE_INTENTS_PROMPT, STEP2_ASSIGN_CATEGORIES_PROMPT
 except ImportError as e:
@@ -56,8 +57,6 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests"""
-        print(f"📥 POST request to: {self.path}")
-        
         if self.path == '/api/upload-asr':
             self.handle_upload_asr()
         elif self.path == '/api/upload-mapping':
@@ -67,8 +66,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         elif self.path == '/api/filter-and-run':
             self.handle_filter_and_run()
         else:
-            print(f"❌ Unknown endpoint: {self.path}")
-            self.send_error(404, f"Endpoint not found: {self.path}")
+            self.send_error(404, "Endpoint not found")
     
     def do_GET(self):
         """Handle GET requests"""
@@ -132,62 +130,13 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             with open(file_path, 'wb') as f:
                 f.write(file_data)
             
-            print(f"📁 Uploaded ASR file: {file_path}")
-            
-            row_count = 0
-            error_msg = None
-            
+            # Quick validation
             try:
-                print("   Reading CSV with tab delimiter...")
-                df = pd.read_csv(file_path, sep='\t', nrows=10)
-                print(f"   Original columns: {list(df.columns)}")
-                
-                # Normalize column names to standard format
-                column_mapping = {
-                    'Path': 'Filename',
-                    'path': 'Filename',
-                    'party': 'Party',
-                    'Party': 'Party',
-                    'text': 'Text',
-                    'Text': 'Text',
-                    'start': 'StartOffset (sec)',
-                    'StartOffset (sec)': 'StartOffset (sec)',
-                    'end': 'EndOffset (sec)',
-                    'EndOffset (sec)': 'EndOffset (sec)'
-                }
-                
-                df_renamed = df.rename(columns=column_mapping)
-                print(f"   Normalized columns: {list(df_renamed.columns)}")
-                
-                # Check for required columns
-                required = ['Filename', 'Party', 'Text', 'StartOffset (sec)', 'EndOffset (sec)']
-                missing = [col for col in required if col not in df_renamed.columns]
-                
-                if missing:
-                    error_msg = f"Missing columns: {missing}"
-                    print(f"   ⚠️  {error_msg}")
-                    row_count = len(df)
-                else:
-                    # Read full file and normalize
-                    df_full = pd.read_csv(file_path, sep='\t')
-                    df_full = df_full.rename(columns=column_mapping)
-                    
-                    # Save normalized version
-                    normalized_path = file_path.replace('.csv', '_normalized.csv')
-                    df_full.to_csv(normalized_path, sep='\t', index=False)
-                    
-                    row_count = len(df_full)
-                    print(f"   ✅ Normalized {row_count} rows")
-                    print(f"   Saved: {normalized_path}")
-                    
-                    # Use normalized file for further processing
-                    file_path = normalized_path
-            
-            except Exception as e:
-                error_msg = f"Error: {str(e)}"
-                print(f"   ❌ {error_msg}")
-                import traceback
-                traceback.print_exc()
+                df = pd.read_csv(file_path, sep='\t', nrows=5)
+                row_count = len(pd.read_csv(file_path, sep='\t'))
+            except:
+                self.send_error(400, "Invalid CSV format")
+                return
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -198,22 +147,16 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 'file_path': file_path,
                 'filename': filename,
                 'row_count': row_count,
-                'error_msg': error_msg,
-                'message': f'Uploaded {filename}' + (f' with {row_count} rows' if row_count > 0 else '')
+                'message': f'Uploaded {filename} with {row_count} rows'
             }
             
-            print(f"   Response: row_count={row_count}")
             self.wfile.write(json.dumps(response).encode())
             
         except Exception as e:
-            print(f"❌ Upload failed: {e}")
-            import traceback
-            traceback.print_exc()
             self.send_error(500, f"Upload failed: {str(e)}")
     
     def handle_upload_mapping(self):
         """Upload the L123 Intent Mapping Excel file"""
-        print("🔵 handle_upload_mapping called")
         try:
             file_data, filename = self.parse_multipart()
             
@@ -227,17 +170,8 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             with open(file_path, 'wb') as f:
                 f.write(file_data)
             
-            print(f"📄 Uploaded mapping file: {file_path}")
-            
-            try:
-                categories_txt_path = self.convert_mapping_to_categories(file_path)
-                print(f"✅ Conversion successful: {categories_txt_path}")
-            except Exception as conv_error:
-                print(f"❌ Conversion failed: {conv_error}")
-                import traceback
-                traceback.print_exc()
-                self.send_error(500, f"Failed to convert mapping: {str(conv_error)}")
-                return
+            # Convert Excel to categories format
+            categories_txt_path = self.convert_mapping_to_categories(file_path)
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -254,97 +188,70 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode())
             
         except Exception as e:
-            print(f"❌ Upload failed: {e}")
-            import traceback
-            traceback.print_exc()
             self.send_error(500, f"Upload failed: {str(e)}")
     
     def convert_mapping_to_categories(self, excel_path):
         """Convert L123 Excel mapping to YAML-style categories text file"""
-        print(f"🔄 Converting {excel_path}...")
-        
-        df = pd.read_excel(excel_path)
-        print(f"   Read {len(df)} rows, {len(df.columns)} columns")
-        print(f"   Columns: {list(df.columns)}")
-        
-        l1_col = None
-        l2_col = None
-        l3_col = None
-        
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if 'level1' in col_lower or 'l1' in col_lower or 'category_mapped' in col_lower:
-                l1_col = col
-            if 'level2' in col_lower or 'l2' in col_lower or 'topic_mapped' in col_lower:
-                l2_col = col
-            if 'level3' in col_lower or 'l3' in col_lower or 'intent' in col_lower:
-                l3_col = col
-        
-        if not l1_col:
-            raise ValueError(f"Cannot find L1 column. Available: {list(df.columns)}")
-        if not l2_col:
-            raise ValueError(f"Cannot find L2 column. Available: {list(df.columns)}")
-        if not l3_col:
-            raise ValueError(f"Cannot find L3 column. Available: {list(df.columns)}")
-        
-        print(f"   ✅ Found L1: '{l1_col}'")
-        print(f"   ✅ Found L2: '{l2_col}'")
-        print(f"   ✅ Found L3: '{l3_col}'")
-        
-        df_unique = df[[l1_col, l2_col, l3_col]].drop_duplicates().sort_values([l1_col, l2_col, l3_col])
-        print(f"   Unique combinations: {len(df_unique)}")
-        
-        lines = []
-        current_l1 = None
-        current_l2 = None
-        
-        for _, row in df_unique.iterrows():
-            l1 = str(row[l1_col]).strip()
-            l2 = str(row[l2_col]).strip()
-            l3 = str(row[l3_col]).strip()
+        try:
+            # Read Excel file
+            df = pd.read_excel(excel_path)
             
-            if l1 == 'nan' or l2 == 'nan' or l3 == 'nan':
-                continue
-            if not l1 or not l2 or not l3:
-                continue
+            # Expected columns (flexible matching)
+            l1_col = [c for c in df.columns if 'level1' in c.lower() or 'l1' in c.lower()][0]
+            l2_col = [c for c in df.columns if 'level2' in c.lower() or 'l2' in c.lower()][0]
+            l3_col = [c for c in df.columns if 'level3' in c.lower() or 'l3' in c.lower()][0]
             
-            if l1 != current_l1:
-                lines.append(f'- {l1}')
-                current_l1 = l1
-                current_l2 = None
+            # Get unique categories
+            df_unique = df[[l1_col, l2_col, l3_col]].drop_duplicates().sort_values([l1_col, l2_col, l3_col])
             
-            if l2 != current_l2:
-                lines.append(f'    - {l2}')
-                current_l2 = l2
+            # Convert to YAML-style format
+            lines = []
+            current_l1 = None
+            current_l2 = None
             
-            lines.append(f'        - {l3}')
-        
-        if len(lines) == 0:
-            raise ValueError("No valid L1/L2/L3 combinations found")
-        
-        output_path = excel_path.replace('.xlsx', '_categories.txt')
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines))
-        
-        print(f"   ✅ Converted {len(lines)} lines to: {output_path}")
-        
-        preview = '\n'.join(lines[:10])
-        print(f"\n   Preview:\n{preview}\n   ...")
-        
-        return output_path
+            for _, row in df_unique.iterrows():
+                l1 = str(row[l1_col]).strip()
+                l2 = str(row[l2_col]).strip()
+                l3 = str(row[l3_col]).strip()
+                
+                if l1 != current_l1:
+                    lines.append(f'- {l1}')
+                    current_l1 = l1
+                    current_l2 = None
+                
+                if l2 != current_l2:
+                    lines.append(f'    - {l2}')
+                    current_l2 = l2
+                
+                lines.append(f'        - {l3}')
+            
+            # Save to text file
+            output_path = excel_path.replace('.xlsx', '_categories.txt')
+            with open(output_path, 'w') as f:
+                f.write('\n'.join(lines))
+            
+            print(f"✅ Converted mapping to categories: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            print(f"❌ Failed to convert mapping: {e}")
+            raise
     
     def handle_generate_intents(self):
         """Run Steps 0, 1, 2 to generate intent mapping"""
         try:
+            # Read JSON body
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
             
+            # Send SSE headers
             self.send_response(200)
             self.send_header('Content-type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             
+            # Extract parameters
             input_csv = data['input_csv']
             categories_txt = data['categories_txt']
             company_name = data['company_name']
@@ -356,46 +263,60 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_sse({'type': 'progress', 'message': '🚀 Starting Intent Generation Pipeline'})
             self.send_sse({'type': 'progress', 'message': '=' * 80})
             
+            # Create working directory
             timestamp = int(time.time())
             work_dir = f"{WORKING_FOLDER}/intent_generation_{timestamp}"
             Path(work_dir).mkdir(exist_ok=True, parents=True)
             
+            # Define intermediate files
             step0_json = f"{work_dir}/step0_conversations.json"
             step0_csv = f"{work_dir}/step0_sampled.csv"
             step1_json = f"{work_dir}/step1_intents.json"
             step1_csv = f"{work_dir}/step1_intents.csv"
             step2_csv = f"{work_dir}/step2_intent_mapping.csv"
             
-            # STEP 0
+            # STEP 0: Prepare Transcripts
             self.send_sse({'type': 'progress', 'message': '\n📋 STEP 0: Preparing Transcripts'})
+            self.send_sse({'type': 'progress', 'message': f'  Input: {input_csv}'})
+            self.send_sse({'type': 'progress', 'message': f'  Format: {csv_format}'})
             
             try:
+                # Load data
                 if csv_format == 'whisper':
                     df = load_whisper_as_nx(input_csv)
                 else:
                     df = load_and_clean_nxtranscript(input_csv)
                 
-                self.send_sse({'type': 'progress', 'message': f'  Loaded {len(df)} rows'})
+                self.send_sse({'type': 'progress', 'message': f'  Loaded {len(df)} rows from {len(set(df.Filename))} files'})
                 
+                # Clean filenames
                 df['Filename'] = df['Filename'].str.replace(r'.*[\\/]([^\\/\.]+)\..*', r'\1', regex=True)
+                
+                # Sample calls
                 sampled_df = sample_calls(df, max_calls=max_calls)
                 sampled_df.to_csv(step0_csv, index=False, sep='\t')
+                self.send_sse({'type': 'progress', 'message': f'  Sampled {len(set(sampled_df.Filename))} calls'})
                 
+                # Extract conversations
                 conversations = get_conversations(sampled_df)
                 save_convs(output_fn=step0_json, prompt=input_csv, convs=conversations, save_path=True)
-                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 0 Complete: {len(conversations)} conversations'})
+                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 0 Complete: {len(conversations)} conversations ready'})
                 
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Step 0 failed: {str(e)}'})
                 return
             
-            # STEP 1
-            self.send_sse({'type': 'progress', 'message': '\n🤖 STEP 1: Generating Intents'})
+            # STEP 1: Generate Intents
+            self.send_sse({'type': 'progress', 'message': '\n🤖 STEP 1: Generating Intents with AI'})
+            self.send_sse({'type': 'progress', 'message': f'  Model: Claude 3.5 Sonnet'})
             
             try:
                 client = bedrock.get_client(region="us-east-1")
+                
+                # Read categories
                 categories_str = open(categories_txt).read()
                 
+                # Create custom prompt with company info
                 custom_prompt = prompt_template.format(
                     company_name=company_name,
                     company_description=company_description,
@@ -418,26 +339,43 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     max_tokens=256
                 )
                 
-                generator.collect_reasons(input_json=step0_json, output_json=step1_json, max_interactions=max_calls)
+                self.send_sse({'type': 'progress', 'message': f'  Processing {len(conversations)} conversations...'})
+                
+                generator.collect_reasons(
+                    input_json=step0_json,
+                    output_json=step1_json,
+                    max_interactions=max_calls
+                )
+                
+                self.send_sse({'type': 'progress', 'message': f'  Creating intent CSV...'})
                 generator.create_intent_csv(step1_json, step1_csv, additional_columns=[])
                 
-                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 1 Complete'})
+                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 1 Complete: Intents generated'})
+                self.send_sse({'type': 'progress', 'message': f'  Tokens used - Input: {generator.input_token_counter:,}, Output: {generator.output_token_counter:,}'})
                 
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Step 1 failed: {str(e)}'})
                 return
             
-            # STEP 2
-            self.send_sse({'type': 'progress', 'message': '\n🏷️  STEP 2: Mapping to Categories'})
+            # STEP 2: Map to Categories
+            self.send_sse({'type': 'progress', 'message': '\n🏷️  STEP 2: Mapping Intents to Categories'})
             
             try:
+                from intents import IntentBuilder
+                
+                # Read assign prompt (using default)
                 assign_prompt = STEP2_ASSIGN_CATEGORIES_PROMPT
+                
+                # Load categories and intents
                 cat_df = categories2dataframe(categories_txt)
                 reasons_df = pd.read_csv(step1_csv, sep='\t').dropna(subset=['Intent']).copy()
                 reasons_df['Ind'] = range(len(reasons_df))
                 
+                self.send_sse({'type': 'progress', 'message': f'  Categorizing {len(reasons_df)} intents...'})
+                
                 builder = IntentBuilder(client, cluster_prompt="", assign_prompt=assign_prompt)
                 
+                # Process in chunks
                 chunk_size = 100
                 all_results = []
                 
@@ -445,14 +383,20 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     end = min(start + chunk_size, len(reasons_df))
                     chunk_intents = list(reasons_df.iloc[start:end]['Intent'])
                     
-                    result = builder.assign_reasons(categories_txt, chunk_intents, 
-                                                   'anthropic.claude-3-5-sonnet-20240620-v1:0', start)
+                    result = builder.assign_reasons(
+                        categories_txt,
+                        chunk_intents,
+                        'anthropic.claude-3-5-sonnet-20240620-v1:0',
+                        start
+                    )
                     
+                    # Parse results
                     from io import StringIO
                     data_io = StringIO(result)
                     assign_cols = ['Ind', 'Intent_Input', 'Intent_Category', 'L3_Score', 'L2_Score', 'L1_Score']
                     df = pd.read_csv(data_io, names=assign_cols, on_bad_lines='skip')
                     
+                    # Clean data
                     df = df[~df['Ind'].astype(str).str.lower().str.contains('ind', na=False)]
                     score_cols = ['Ind', 'L3_Score', 'L2_Score', 'L1_Score']
                     for col in score_cols:
@@ -464,33 +408,50 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     all_results.append(df)
                     
                     progress_pct = int((end / len(reasons_df)) * 100)
-                    self.send_sse({'type': 'progress', 'message': f'  Progress: {progress_pct}%'})
+                    self.send_sse({'type': 'progress', 'message': f'  Progress: {progress_pct}% ({end}/{len(reasons_df)})'})
                 
+                # Combine all results
                 combined_df = pd.concat(all_results, ignore_index=True)
                 combined_df.drop(['Intent_Input'], axis=1, inplace=True)
                 
+                # Merge with original data
                 merged_df = pd.merge(reasons_df, combined_df, on='Ind')
                 merged_df['Intent_Category'] = merged_df['Intent_Category'].str.replace(r',.*', '', regex=True)
+                
+                # Save final mapping
                 merged_df.to_csv(step2_csv, sep='\t', index=False)
                 
-                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 2 Complete'})
+                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 2 Complete: Intent mapping created'})
+                self.send_sse({'type': 'progress', 'message': f'  Tokens used - Input: {builder.input_token_counter:,}, Output: {builder.output_token_counter:,}'})
                 
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Step 2 failed: {str(e)}'})
                 return
             
-            # Extract intents
+            # FINAL: Extract and send intent statistics
+            self.send_sse({'type': 'progress', 'message': '\n📊 Extracting Intent Statistics'})
+            
             try:
                 intents = self.extract_intents(step2_csv)
-                self.send_sse({'type': 'progress', 'message': f'✅ COMPLETE! {len(intents)} intents'})
-                self.send_sse({'type': 'complete', 'results': {
-                    'intents': intents,
-                    'intent_mapping_file': step2_csv,
-                    'total_intents': len(intents),
-                    'work_dir': work_dir
-                }})
+                
+                self.send_sse({'type': 'progress', 'message': '=' * 80})
+                self.send_sse({'type': 'progress', 'message': f'✅ PIPELINE COMPLETE!'})
+                self.send_sse({'type': 'progress', 'message': f'  Total intents found: {len(intents)}'})
+                self.send_sse({'type': 'progress', 'message': f'  Output file: {step2_csv}'})
+                
+                self.send_sse({
+                    'type': 'complete',
+                    'results': {
+                        'intents': intents,
+                        'intent_mapping_file': step2_csv,
+                        'total_intents': len(intents),
+                        'work_dir': work_dir
+                    }
+                })
+                
             except Exception as e:
-                self.send_sse({'type': 'error', 'message': f'Failed: {str(e)}'})
+                self.send_sse({'type': 'error', 'message': f'Failed to extract intents: {str(e)}'})
+                return
             
         except Exception as e:
             import traceback
@@ -499,13 +460,19 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def extract_intents(self, intent_file_path):
         """Extract unique intents with volume from the mapping file"""
+        intents_dict = {}
+        
+        # Read the intent mapping file
         df = pd.read_csv(intent_file_path, sep='\t')
         
+        # Filter high confidence (score = 5)
         if 'L3_Score' in df.columns:
             df = df[df['L3_Score'] == 5]
         
+        # Count by Intent_Category
         if 'Intent_Category' in df.columns:
             intent_counts = df['Intent_Category'].value_counts()
+            
             total = len(df)
             intents = []
             
@@ -527,15 +494,18 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_filter_and_run(self):
         """Filter ASR data by intent and run pipeline"""
         try:
+            # Read JSON body
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
             
+            # Send SSE headers
             self.send_response(200)
             self.send_header('Content-type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             
+            # Extract parameters
             intent = data['intent']
             intent_mapping_file = data['intent_mapping_file']
             asr_file = data['asr_file']
@@ -544,25 +514,34 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             batch_size = data.get('batch_size', 3)
             workers = data.get('workers', 3)
             
-            self.send_sse({'type': 'progress', 'message': f"Starting analysis for: {intent}"})
+            self.send_sse({'type': 'progress', 'message': f"Starting analysis for intent: {intent}"})
             self.send_sse({'type': 'progress', 'message': '=' * 80})
             
-            self.send_sse({'type': 'progress', 'message': 'Filtering ASR data...'})
+            # Step 1: Filter by intent
+            self.send_sse({'type': 'progress', 'message': 'Step 1: Filtering ASR data by intent...'})
             
+            # Get filenames for this intent
             filenames = self.get_filenames_for_intent(intent_mapping_file, intent)
-            self.send_sse({'type': 'progress', 'message': f'  Found {len(filenames)} calls'})
+            self.send_sse({'type': 'progress', 'message': f'  Found {len(filenames)} calls for this intent'})
             
+            # Filter ASR file
             filtered_asr_path = self.filter_asr_by_filenames(asr_file, filenames, intent)
-            self.send_sse({'type': 'progress', 'message': f'  ✅ Filtered ASR created'})
+            self.send_sse({'type': 'progress', 'message': f'  Created filtered ASR file: {filtered_asr_path}'})
+            self.send_sse({'type': 'progress', 'message': '  ✅ Step 1 complete'})
+            self.send_sse({'type': 'progress', 'message': '=' * 80})
             
-            self.send_sse({'type': 'progress', 'message': 'Running analysis pipeline...'})
+            # Step 2: Run pipeline
+            self.send_sse({'type': 'progress', 'message': 'Step 2: Running analysis pipeline...'})
             
+            # Check if pipeline exists
             if not os.path.exists('universal_pipeline.py'):
-                self.send_sse({'type': 'error', 'message': 'universal_pipeline.py not found'})
+                self.send_sse({'type': 'error', 'message': 'ERROR: universal_pipeline.py not found'})
                 return
             
+            # Build command
             cmd = [
-                sys.executable, 'universal_pipeline.py',
+                sys.executable,
+                'universal_pipeline.py',
                 '--client', client,
                 '--intent', intent,
                 '--input', filtered_asr_path,
@@ -571,35 +550,64 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 '--workers', str(workers)
             ]
             
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            self.send_sse({'type': 'progress', 'message': f"  Command: {' '.join(cmd)}"})
+            self.send_sse({'type': 'progress', 'message': '-' * 80})
             
+            # Execute pipeline
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            
+            # Stream output
+            output_lines = []
             for line in process.stdout:
                 line = line.strip()
                 if line:
+                    output_lines.append(line)
                     self.send_sse({'type': 'progress', 'message': f"  {line}"})
             
+            # Wait for completion
             return_code = process.wait()
             
+            self.send_sse({'type': 'progress', 'message': '-' * 80})
+            self.send_sse({'type': 'progress', 'message': f"  Process exit code: {return_code}"})
+            
             if return_code == 0:
+                # Calculate output path
                 client_safe = re.sub(r'\W+', '', client)
                 intent_safe = re.sub(r'\W+', '', intent)
                 output_path = f"{output_dir}/{client_safe}/{intent_safe}"
                 
+                # Count results
                 results_file = f"{output_path}/analysis_results.csv"
                 total_calls = 0
                 if os.path.exists(results_file):
                     with open(results_file, 'r') as f:
                         total_calls = sum(1 for _ in f) - 1
                 
-                self.send_sse({'type': 'progress', 'message': f"✅ Complete! {total_calls} calls processed"})
-                self.send_sse({'type': 'complete', 'results': {
-                    'output_dir': output_path,
-                    'total_calls': total_calls,
-                    'batches': batch_size,
-                    'filtered_asr_file': filtered_asr_path
-                }})
+                self.send_sse({'type': 'progress', 'message': '=' * 80})
+                self.send_sse({'type': 'progress', 'message': f"✅ Pipeline completed successfully!"})
+                self.send_sse({'type': 'progress', 'message': f"  Processed {total_calls} calls"})
+                self.send_sse({'type': 'progress', 'message': f"  Results saved to: {output_path}"})
+                
+                self.send_sse({
+                    'type': 'complete',
+                    'results': {
+                        'output_dir': output_path,
+                        'total_calls': total_calls,
+                        'batches': batch_size,
+                        'filtered_asr_file': filtered_asr_path
+                    }
+                })
             else:
-                self.send_sse({'type': 'error', 'message': f'Pipeline failed: exit code {return_code}'})
+                error_msg = f'Pipeline execution failed with exit code {return_code}'
+                if output_lines:
+                    error_msg += f'. Last output: {output_lines[-1]}'
+                self.send_sse({'type': 'error', 'message': error_msg})
             
         except Exception as e:
             import traceback
@@ -608,27 +616,33 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def get_filenames_for_intent(self, intent_file, target_intent):
         """Get list of filenames for a specific intent"""
+        filenames = set()
+        
         df = pd.read_csv(intent_file, sep='\t')
         
+        # Filter by intent category and high score
         if 'Intent_Category' in df.columns and 'Filename' in df.columns:
             filtered = df[df['Intent_Category'] == target_intent]
             if 'L3_Score' in df.columns:
                 filtered = filtered[filtered['L3_Score'] == 5]
-            return set(filtered['Filename'].tolist())
+            filenames = set(filtered['Filename'].tolist())
         
-        return set()
+        return filenames
     
     def filter_asr_by_filenames(self, asr_file, filenames, intent):
         """Filter ASR file to only include specified filenames"""
+        # Create output directory
         intent_safe = re.sub(r'\W+', '', intent)
         output_dir = f"{WORKING_FOLDER}/filtered_{intent_safe}"
         Path(output_dir).mkdir(exist_ok=True)
         
         filtered_path = f"{output_dir}/asr_filtered.csv"
         
+        # Read and filter
         df = pd.read_csv(asr_file, sep='\t')
         
         if 'Filename' in df.columns:
+            # Clean filenames for comparison
             df['Filename_clean'] = df['Filename'].str.replace(r'.*[\\/]([^\\/\.]+)\..*', r'\1', regex=True)
             filenames_clean = {re.sub(r'.*[\\/]([^\\/\.]+)\..*', r'\1', fn) for fn in filenames}
             
@@ -672,6 +686,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(404, "File not found")
                 return
             
+            # Send file
             self.send_response(200)
             content_type = 'application/json' if file_type == 'summary' else 'text/csv'
             self.send_header('Content-type', content_type)
@@ -684,7 +699,6 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, f"Download failed: {str(e)}")
 
-
 def main():
     """Start the server"""
     print("=" * 80)
@@ -696,14 +710,14 @@ def main():
     print(f"🌐 Server running on http://localhost:{PORT}")
     print("=" * 80)
     print("\nNew Workflow:")
-    print("  1. Upload ASR CSV file")
-    print("  2. Upload L123 Intent Mapping Excel")
-    print("  3. Enter company info")
+    print("  1. Upload ASR CSV file (asr-whisper or nx_transcripts)")
+    print("  2. Upload L123 Intent Mapping Excel file")
+    print("  3. Enter company name and description")
     print("  4. Edit AI prompt (optional)")
-    print("  5. Generate intents (Steps 0→1→2)")
+    print("  5. Run Steps 0→1→2 to generate intent mapping")
     print("  6. Select intent from table")
     print("  7. Run detailed analysis")
-    print("\nPress Ctrl+C to stop\n")
+    print("\nPress Ctrl+C to stop the server\n")
     
     with socketserver.TCPServer(("", PORT), CORSRequestHandler) as httpd:
         try:
@@ -711,7 +725,6 @@ def main():
         except KeyboardInterrupt:
             print("\n\n👋 Server stopped")
             sys.exit(0)
-
 
 if __name__ == '__main__':
     main()
