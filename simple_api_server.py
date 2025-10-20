@@ -429,12 +429,19 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             
             # STEP 2
             self.send_sse({'type': 'progress', 'message': '\n🏷️  STEP 2: Mapping to Categories'})
-            
+
             try:
                 assign_prompt = STEP2_ASSIGN_CATEGORIES_PROMPT
                 cat_df = categories2dataframe(categories_txt)
                 reasons_df = pd.read_csv(step1_csv, sep='\t').dropna(subset=['Intent']).copy()
+                
+                if len(reasons_df) == 0:
+                    self.send_sse({'type': 'error', 'message': 'Step 1 produced no intents!'})
+                    return
+                
                 reasons_df['Ind'] = range(len(reasons_df))
+                
+                self.send_sse({'type': 'progress', 'message': f'  Categorizing {len(reasons_df)} intents...'})
                 
                 builder = IntentBuilder(client, cluster_prompt="", assign_prompt=assign_prompt)
                 
@@ -445,37 +452,65 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     end = min(start + chunk_size, len(reasons_df))
                     chunk_intents = list(reasons_df.iloc[start:end]['Intent'])
                     
-                    result = builder.assign_reasons(categories_txt, chunk_intents, 
-                                                   'anthropic.claude-3-5-sonnet-20240620-v1:0', start)
-                    
-                    from io import StringIO
-                    data_io = StringIO(result)
-                    assign_cols = ['Ind', 'Intent_Input', 'Intent_Category', 'L3_Score', 'L2_Score', 'L1_Score']
-                    df = pd.read_csv(data_io, names=assign_cols, on_bad_lines='skip')
-                    
-                    df = df[~df['Ind'].astype(str).str.lower().str.contains('ind', na=False)]
-                    score_cols = ['Ind', 'L3_Score', 'L2_Score', 'L1_Score']
-                    for col in score_cols:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-                    df = df.dropna(subset=score_cols)
-                    for col in score_cols:
-                        df[col] = df[col].astype(int)
-                    
-                    all_results.append(df)
+                    try:
+                        result = builder.assign_reasons(categories_txt, chunk_intents, 
+                                                    'anthropic.claude-3-5-sonnet-20240620-v1:0', start)
+                        
+                        # Debug: show what LLM returned
+                        print(f"\n=== LLM Response for chunk {start}-{end} ===")
+                        print(result[:500])  # First 500 chars
+                        
+                        from io import StringIO
+                        data_io = StringIO(result)
+                        assign_cols = ['Ind', 'Intent_Input', 'Intent_Category', 'L3_Score', 'L2_Score', 'L1_Score']
+                        df = pd.read_csv(data_io, names=assign_cols, on_bad_lines='skip')
+                        
+                        print(f"   Parsed {len(df)} rows")
+                        
+                        # Clean data
+                        df = df[~df['Ind'].astype(str).str.lower().str.contains('ind', na=False)]
+                        score_cols = ['Ind', 'L3_Score', 'L2_Score', 'L1_Score']
+                        for col in score_cols:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        df = df.dropna(subset=score_cols)
+                        for col in score_cols:
+                            df[col] = df[col].astype(int)
+                        
+                        print(f"   After cleaning: {len(df)} rows")
+                        
+                        if len(df) > 0:
+                            all_results.append(df)
+                        else:
+                            print(f"   ⚠️  Chunk {start}-{end} produced no valid rows")
+                        
+                    except Exception as chunk_error:
+                        print(f"   ❌ Chunk {start}-{end} failed: {chunk_error}")
+                        self.send_sse({'type': 'progress', 'message': f'  ⚠️  Chunk {start}-{end} failed'})
                     
                     progress_pct = int((end / len(reasons_df)) * 100)
                     self.send_sse({'type': 'progress', 'message': f'  Progress: {progress_pct}%'})
                 
+                # Check if we have ANY results
+                if len(all_results) == 0:
+                    self.send_sse({'type': 'error', 'message': 'Step 2: No valid categorizations produced. Check server logs.'})
+                    return
+                
+                # Combine results
                 combined_df = pd.concat(all_results, ignore_index=True)
-                combined_df.drop(['Intent_Input'], axis=1, inplace=True)
+                print(f"\n✅ Combined {len(combined_df)} total rows from {len(all_results)} chunks")
+                
+                combined_df.drop(['Intent_Input'], axis=1, inplace=True, errors='ignore')
                 
                 merged_df = pd.merge(reasons_df, combined_df, on='Ind')
                 merged_df['Intent_Category'] = merged_df['Intent_Category'].str.replace(r',.*', '', regex=True)
                 merged_df.to_csv(step2_csv, sep='\t', index=False)
                 
-                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 2 Complete'})
+                self.send_sse({'type': 'progress', 'message': f'  ✅ Step 2 Complete: {len(merged_df)} intents categorized'})
                 
             except Exception as e:
+                print(f"\n❌ Step 2 failed: {e}")
+                import traceback
+                traceback.print_exc()
                 self.send_sse({'type': 'error', 'message': f'Step 2 failed: {str(e)}'})
                 return
             
