@@ -36,7 +36,8 @@ class PipelineConfig:
                  output_base_dir: str = './data',
                  batch_size: int = 3,
                  max_workers: int = 3,
-                 model_id: str = 'anthropic.claude-3-5-sonnet-20240620-v1:0'):
+                 model_id: str = 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+                 analysis_prompt: str = ""):
         
         self.client_name = client_name
         self.intent_l3 = intent_l3
@@ -44,6 +45,7 @@ class PipelineConfig:
         self.batch_size = batch_size
         self.max_workers = max_workers
         self.model_id = model_id
+        self.analysis_prompt = (analysis_prompt or "").strip()
         
         # Create safe directory name
         client_safe = re.sub(r'\W+', '', client_name)
@@ -66,7 +68,9 @@ class PipelineConfig:
   Output: {self.output_dir}
   Batch Size: {self.batch_size}
   Workers: {self.max_workers}
-  Model: {self.model_id}"""
+  Model: {self.model_id}
+  Prompt length: {len(self.analysis_prompt)} chars
+"""
 
 
 # ============================================================================
@@ -113,8 +117,21 @@ class UniversalAnalyzer:
         self.bedrock = bedrock.BedrockClient()
     
     def create_analysis_prompt(self, batch_data: List[Dict]) -> str:
-        """Create domain-agnostic prompt for any customer service context"""
-        
+        """Create prompt (use custom one if provided, else default)"""
+
+        # If caller provided a custom prompt, prepend a compact calls section
+        if self.config.analysis_prompt:
+            calls_text = ""
+            for i, item in enumerate(batch_data, 1):
+                calls_text += (
+                    f"\n═══ CALL {i} ═══\n"
+                    f"Filename: {item['filename']}\n"
+                    f"Customer: {item.get('customer_transcript','')[:600]}\n"
+                    f"Agent: {item.get('agent_transcript','')[:600]}\n"
+                )
+            return f"{self.config.analysis_prompt}\n\n{calls_text}"
+
+        # Otherwise, use original default domain-agnostic prompt
         calls_text = ""
         for i, item in enumerate(batch_data, 1):
             customer = str(item.get('customer_transcript', ''))[:600]
@@ -130,7 +147,6 @@ Agent: {agent}
 
 """
         
-        # Domain-agnostic prompt - no industry-specific references
         prompt = f"""You are analyzing customer service calls. Provide detailed, specific analysis for each call.
 
 {calls_text}
@@ -600,6 +616,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=3, help='Batch size')
     parser.add_argument('--workers', type=int, default=3, help='Number of parallel workers')
     parser.add_argument('--model', default='anthropic.claude-3-5-sonnet-20240620-v1:0', help='Model ID')
+    parser.add_argument('--prompt', type=str, default='', help='Custom analysis prompt from web app')
     
     args = parser.parse_args()
     
@@ -610,7 +627,8 @@ if __name__ == "__main__":
         output_base_dir=args.output_dir,
         batch_size=args.batch_size,
         max_workers=args.workers,
-        model_id=args.model
+        model_id=args.model,
+        analysis_prompt=args.prompt
     )
     
     run_pipeline(config)
