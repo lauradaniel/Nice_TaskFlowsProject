@@ -340,6 +340,51 @@
       grid-template-columns: 1fr 1fr;
       gap: 1.5rem;
     }
+
+    .stats-grid {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: nowrap;   
+    }
+
+    .stat-card {
+      background: #f8fafc;
+      padding: 1.5rem;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      text-align: center;
+      flex: 1 1 0;                       /* 4 equal widths */
+      min-width: 0
+    }
+
+    .stat-card h3 {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-card .value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .stat-card .percentage {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: #3b82f6;
+    }
+
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.85em;
+    }
   </style>
 </head>
 <body>
@@ -348,7 +393,7 @@
       <div class="logo">📊</div>
       <div class="title">
         <h1>Transcript Analysis Pipeline</h1>
-        <p>Generate intents → Select intent → Analyze calls</p>
+        <p>Configure → Upload → Generate intents → Analyze</p>
       </div>
     </div>
   </div>
@@ -368,58 +413,12 @@
       <div id="infoMessage"></div>
     </div>
     
-    <!-- PHASE 1: Upload and Generate Intents -->
+    <!-- PHASE 1: Configuration and Upload -->
     <div id="phase1" class="phase">
-      <!-- Upload ASR File -->
+      <!-- Company Information FIRST -->
       <div class="card">
         <div class="card-header">
-          <h2>📁 Step 1: Upload ASR/Transcript File</h2>
-          <p>Upload your asr-whisper_001.csv or nx_transcripts.csv file</p>
-        </div>
-        <div class="card-body">
-          <div class="upload-area">
-            <div class="upload-icon" id="asrIcon">📁</div>
-            <h3 id="asrTitle" style="margin-bottom: 0.5rem;">Select ASR File</h3>
-            <p style="color: #64748b; font-size: 0.875rem;">CSV file with transcript data</p>
-            <label for="asrFileInput" class="btn btn-primary" style="margin-top: 1rem;">
-              <span>📤</span> Select File
-            </label>
-            <input type="file" id="asrFileInput" accept=".csv">
-          </div>
-          <div id="asrStatus" class="hidden" style="margin-top: 1rem;">
-            <span class="status-badge status-uploaded">✓ Uploaded</span>
-            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="asrFileName"></span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Upload Mapping File -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📋 Step 2: Upload Intent Mapping File</h2>
-          <p>Upload your L123Intent_AgentTaskLabel_Mapping.xlsx file</p>
-        </div>
-        <div class="card-body">
-          <div class="upload-area">
-            <div class="upload-icon" id="mappingIcon">📄</div>
-            <h3 id="mappingTitle" style="margin-bottom: 0.5rem;">Select Mapping File</h3>
-            <p style="color: #64748b; font-size: 0.875rem;">Excel file with L1/L2/L3 taxonomy</p>
-            <label for="mappingFileInput" class="btn btn-primary" style="margin-top: 1rem;">
-              <span>📤</span> Select File
-            </label>
-            <input type="file" id="mappingFileInput" accept=".xlsx,.xls">
-          </div>
-          <div id="mappingStatus" class="hidden" style="margin-top: 1rem;">
-            <span class="status-badge status-uploaded">✓ Uploaded</span>
-            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="mappingFileName"></span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Company Information -->
-      <div id="companyCard" class="card hidden">
-        <div class="card-header">
-          <h2>🏢 Step 3: Enter Company Information</h2>
+          <h2>🏢 Step 1: Company Information</h2>
           <p>Provide context for AI intent generation</p>
         </div>
         <div class="card-body">
@@ -455,13 +454,20 @@
               </div>
             </div>
           </div>
+          <div class="form-group">
+            <label>Parallel Workers (max Bedrock requests at once)</label>
+            <input type="number" id="maxWorkers" value="3" min="1" max="10" placeholder="3">
+            <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">
+              Use 3 (default) to avoid throttling. Increase if your AWS account allows more throughput.
+            </p>
+          </div>
         </div>
       </div>
-      
+
       <!-- Prompt Editor -->
-      <div id="promptCard" class="card hidden">
+      <div class="card">
         <div class="card-header">
-          <h2>✏️ Step 4: Review AI Prompt (Optional)</h2>
+          <h2>✏️ Step 2: Review AI Prompt (Optional)</h2>
           <p>Customize the prompt used for intent generation</p>
         </div>
         <div class="card-body">
@@ -472,13 +478,121 @@
               Variables: {company_name}, {company_description}, {conv}
             </p>
           </div>
-          <div class="btn-group">
-            <button class="btn btn-secondary" onclick="resetToDefaultPrompt()">Reset to Default</button>
-            <button class="btn btn-primary" onclick="generateIntents()">
-              <span>🚀</span> Generate Intents
+          <button class="btn btn-secondary" onclick="resetToDefaultPrompt()">Reset to Default</button>
+        </div>
+      </div>
+      
+      <!-- Upload ASR File -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📁 Step 3: Upload ASR/Transcript File</h2>
+          <p>Upload your file or provide a local path</p>
+        </div>
+        <div class="card-body">
+          <!-- Option Toggle -->
+          <div style="margin-bottom: 1.5rem; display: flex; gap: 1rem; justify-content: center;">
+            <button class="btn btn-secondary" id="uploadOptionBtn" onclick="switchASROption('upload')" style="flex: 1; max-width: 200px;">
+              📤 Upload File
+            </button>
+            <button class="btn btn-secondary" id="pathOptionBtn" onclick="switchASROption('path')" style="flex: 1; max-width: 200px;">
+              📂 Local Path
             </button>
           </div>
+
+          <!-- Upload Option -->
+          <div id="asrUploadOption">
+            <div class="upload-area">
+              <div class="upload-icon" id="asrIcon">📁</div>
+              <h3 id="asrTitle" style="margin-bottom: 0.5rem;">Select ASR File</h3>
+              <p style="color: #64748b; font-size: 0.875rem;">CSV file with transcript data</p>
+              <label for="asrFileInput" class="btn btn-primary" style="margin-top: 1rem;">
+                <span>📤</span> Select File
+              </label>
+              <input type="file" id="asrFileInput" accept=".csv">
+            </div>
+          </div>
+
+          <!-- Local Path Option -->
+          <div id="asrPathOption" class="hidden">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>ASR File Path *</label>
+              <input type="text" id="asrPathInput" placeholder="/path/to/asr-whisper_001.csv or ./data/asr.csv" style="font-family: monospace;" onkeypress="if(event.key==='Enter') useASRPath()">
+              <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.5rem;">
+                Enter the full path to your ASR file on the server. Examples:<br>
+                • <code>/home/user/data/asr-whisper_001.csv</code><br>
+                • <code>./data/asr-whisper_001.csv</code> (relative to server)<br>
+                <strong style="color: #3b82f6;">⚠️ Click "Use This Path" button below after entering the path!</strong>
+              </p>
+              <button class="btn btn-primary" id="useASRPathBtn" style="margin-top: 1rem;">
+                ✓ Use This Path
+              </button>
+            </div>
+          </div>
+
+          <div id="asrStatus" class="hidden" style="margin-top: 1rem;">
+            <span class="status-badge status-uploaded">✓ Ready</span>
+            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="asrFileName"></span>
+          </div>
         </div>
+      </div>
+      
+      <!-- Upload Mapping File -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📋 Step 4: Upload Intent Mapping File</h2>
+          <p>Upload your file or provide a local path</p>
+        </div>
+        <div class="card-body">
+          <!-- Option Toggle -->
+          <div style="margin-bottom: 1.5rem; display: flex; gap: 1rem; justify-content: center;">
+            <button class="btn btn-secondary" id="mappingUploadOptionBtn" onclick="switchMappingOption('upload')" style="flex: 1; max-width: 200px;">
+              📤 Upload File
+            </button>
+            <button class="btn btn-secondary" id="mappingPathOptionBtn" onclick="switchMappingOption('path')" style="flex: 1; max-width: 200px;">
+              📂 Local Path
+            </button>
+          </div>
+
+          <!-- Upload Option -->
+          <div id="mappingUploadOption">
+            <div class="upload-area">
+              <div class="upload-icon" id="mappingIcon">📄</div>
+              <h3 id="mappingTitle" style="margin-bottom: 0.5rem;">Select Mapping File</h3>
+              <p style="color: #64748b; font-size: 0.875rem;">Excel file with L1/L2/L3 taxonomy</p>
+              <label for="mappingFileInput" class="btn btn-primary" style="margin-top: 1rem;">
+                <span>📤</span> Select File
+              </label>
+              <input type="file" id="mappingFileInput" accept=".xlsx,.xls">
+            </div>
+          </div>
+
+          <!-- Local Path Option -->
+          <div id="mappingPathOption" class="hidden">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Mapping File Path *</label>
+              <input type="text" id="mappingPathInput" placeholder="/path/to/L123Intent_AgentTaskLabel_Mapping.xlsx" style="font-family: monospace;" onkeypress="if(event.key==='Enter') useMappingPath()">
+              <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.5rem;">
+                Enter the full path to your mapping Excel file on the server.<br>
+                <strong style="color: #3b82f6;">⚠️ Click "Use This Path" button below after entering the path!</strong>
+              </p>
+              <button class="btn btn-primary" id="useMappingPathBtn" style="margin-top: 1rem;">
+                ✓ Use This Path
+              </button>
+            </div>
+          </div>
+
+          <div id="mappingStatus" class="hidden" style="margin-top: 1rem;">
+            <span class="status-badge status-uploaded">✓ Ready</span>
+            <span style="margin-left: 1rem; color: #64748b; font-size: 0.875rem;" id="mappingFileName"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Generate Button -->
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="generateIntents()" id="generateBtn" disabled>
+          <span>🚀</span> Generate Intents
+        </button>
       </div>
       
       <!-- Progress Log -->
@@ -492,11 +606,43 @@
       </div>
     </div>
     
-    <!-- PHASE 2: Intent Selection -->
+    <!-- PHASE 2: Intent Selection with Coverage -->
     <div id="phase2" class="phase hidden">
       <button class="btn btn-secondary" onclick="startOver()" style="margin-bottom: 1rem;">
         ← Start Over
       </button>
+
+      <!-- Coverage Statistics -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📈 Intent Generation Coverage</h2>
+          <p>How many transcripts got an intent assigned</p>
+        </div>
+        <div class="card-body">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <h3>Total Transcripts (Input)</h3>
+              <div class="value" id="totalTranscriptsInput">-</div>
+            </div>
+            <div class="stat-card">
+              <h3>Transcripts Confidently Understood</h3>
+              <div class="value" id="totalTranscripts">-</div>
+            </div>
+            <div class="stat-card">
+              <h3>Intents Assigned</h3>
+              <div class="value" id="intentsAssigned">-</div>
+            </div>
+            <div class="stat-card">
+              <h3>Coverage Rate</h3>
+              <div class="percentage" id="coverageRate">-</div>
+            </div>
+            <div class="stat-card">
+              <h3>Unique Intents</h3>
+              <div class="value" id="uniqueIntents">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
       
       <div class="card">
         <div class="card-header">
@@ -573,19 +719,16 @@
           </div>
         </div>
       </div>
-      
-      <!-- Configuration -->
+
+      <!-- Configuration - NO duplicate company info -->
       <div id="configForm">
         <div class="card">
           <div class="card-header">
             <h2>⚙️ Analysis Configuration</h2>
+            <p>Using company: <strong id="displayCompanyName"></strong></p>
           </div>
           <div class="card-body">
             <div class="form-grid">
-              <div class="form-group">
-                <label>Client Name *</label>
-                <input type="text" id="clientName" placeholder="Enter client name">
-              </div>
               <div class="form-group">
                 <label>Output Folder *</label>
                 <input type="text" id="outputFolder" value="./data">
@@ -602,7 +745,21 @@
           </div>
         </div>
       </div>
-      
+            <!-- Prompt Editor -->
+            <div class="card"  id="promptEditorCard">
+              <div class="card-header">
+                <h2>✏️ LLM Analysis Prompt</h2>
+                <p>Review and customize the prompt used for AI analysis</p>
+              </div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label>Prompt Template (Editable)</label>
+                  <textarea id="analysisPrompt" rows="15" 
+                    style="font-family: 'Courier New', monospace; width: 100%; 
+                          padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px;"></textarea>
+                </div>
+              </div>
+            </div>
       <!-- Analysis Progress -->
       <div id="analysisProgressCard" class="card hidden">
         <div class="card-header">
@@ -635,44 +792,107 @@
     let pipelineResults = null;
     let currentSort = { column: 'volume', direction: 'desc' };
     
+    // Store user config from Phase 1
+    let userConfig = {
+      companyName: '',
+      companyDescription: '',
+      promptTemplate: '',
+      format: 'whisper',
+      maxCalls: 100
+    };
+    
     // Default prompt
-    const defaultPrompt = `You are analyzing customer service conversations for {company_name}.
+// In index.html, update defaultPrompt:
+const defaultPrompt = `You are analyzing customer service conversations for {company_name}.
 
 Company Description: {company_description}
 
-Please analyze the following conversation and identify the primary customer intent in 5-10 words.
+**CRITICAL**: You MUST provide an intent for EVERY conversation. Do not skip any conversation.
 
-The intent should:
-- Be specific to what the customer wants to accomplish
-- Focus on the customer's goal, not the agent's actions
-- Be phrased from the customer's perspective
-- Be concise and actionable
+Analyze the conversation and identify the primary customer intent in 5-10 words.
 
 Conversation:
 {conv}
 
-Respond with ONLY the intent phrase, no additional commentary.
+**RESPONSE FORMAT** (you must use this exact format):
+Intent description,1
 
-Examples of good intents:
-- "Update billing address for account"
-- "Report unauthorized transaction on credit card"
-- "Request refund for cancelled service"
-- "Inquire about product warranty coverage"
+**EXAMPLES**:
+Inquiring about account balance,1
+Requesting password reset assistance,1
+Updating billing address information,1
+Reporting technical system issue,1
+Checking transaction history status,1
 
-Your response (intent only):`;
+**IMPORTANT RULES**:
+1. Always respond with ONE line only
+2. Always include the comma and the number 1
+3. If the intent is unclear, provide your best interpretation
+4. Never respond with "unclear" or "unknown" - make a reasonable guess
+5. Focus on what the customer WANTS, not what they're saying
+
+Your response (must include comma and number):`;
     
+// Default analysis prompt (restored)
+const defaultAnalysisPrompt = `You are analyzing customer service calls. Provide detailed, specific analysis for each call.
+
+For EACH call above, provide comprehensive analysis:
+
+CALL_ID: [exact filename]
+PRIMARY_INTENT: [Specific customer need or request in 4-7 words]
+INTENT_CATEGORY: [Broader category this falls under]
+INTENT_EXPLANATION: [2-3 sentences explaining WHY you classified it this way. Quote specific words/phrases the customer said as evidence.]
+
+AGENT_TASKS: [Specific actions the agent performed, comma-separated]
+TASK_BREAKDOWN: [Numbered list with detailed explanations]
+1. [Task Name] - [Describe specifically what the agent did and how]
+2. [Task Name] - [Describe the agent's actions in detail]
+3. [Task Name] - [Be specific about the steps taken]
+
+RESOLUTION_STATUS: [FULLY_RESOLVED or PARTIAL_RESOLUTION or NOT_RESOLVED]
+RESOLUTION_CONFIDENCE: [1-5, where 5 = very confident]
+RESOLUTION_EXPLANATION: [2 sentences: What was resolved? What evidence shows this?]
+
+AUTOMATION_SCORE: [1-100, where 100 = easily automatable]
+AUTOMATION_REASONING: [2 sentences: Why this score? What factors make it more or less automatable?]
+
+CRITICAL REQUIREMENTS:
+- Be SPECIFIC - cite actual phrases from transcripts
+- NO generic responses - make each analysis unique
+- EXPLAIN your reasoning with evidence
+- Use exact filenames provided`;
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('promptTemplate').value = defaultPrompt;
+      document.getElementById('analysisPrompt').value = defaultAnalysisPrompt;
+      // Monitor form changes
+      ['companyName', 'companyDescription'].forEach(id => {
+        document.getElementById(id).addEventListener('input', checkFormComplete);
+      });
       
       // Update estimated time when max calls changes
       document.getElementById('maxCalls').addEventListener('input', updateEstimatedTime);
-      updateEstimatedTime(); // Initial calculation
+      updateEstimatedTime();
+      
+      // Initialize upload buttons as selected
+      switchASROption('upload');
+      switchMappingOption('upload');
+      
+      // Add event listeners for path buttons
+      document.getElementById('useASRPathBtn').addEventListener('click', function() {
+        console.log('ASR Path button clicked (event listener)');
+        useASRPath();
+      });
+      
+      document.getElementById('useMappingPathBtn').addEventListener('click', function() {
+        console.log('Mapping Path button clicked (event listener)');
+        useMappingPath();
+      });
     });
     
     function updateEstimatedTime() {
       const maxCalls = parseInt(document.getElementById('maxCalls').value) || 100;
-      const minutesPerCall = 0.3; // ~20 seconds per call average
+      const minutesPerCall = 0.3;
       const totalMinutes = Math.ceil(maxCalls * minutesPerCall);
       
       let timeText;
@@ -686,14 +906,153 @@ Your response (intent only):`;
       
       document.getElementById('estimatedTime').textContent = timeText;
     }
+
+    function checkFormComplete() {
+      const companyName = document.getElementById('companyName').value.trim();
+      const companyDesc = document.getElementById('companyDescription').value.trim();
+      const hasFiles = asrFile && mappingFile;
+      
+      document.getElementById('generateBtn').disabled = !(companyName && companyDesc && hasFiles);
+    }
     
-    // File upload handlers
+    // File upload handlers - just upload, don't process
     document.getElementById('asrFileInput').addEventListener('change', handleASRFileUpload);
     document.getElementById('mappingFileInput').addEventListener('change', handleMappingFileUpload);
+    
+    // ASR option switching
+    function switchASROption(option) {
+      if (option === 'upload') {
+        document.getElementById('asrUploadOption').classList.remove('hidden');
+        document.getElementById('asrPathOption').classList.add('hidden');
+        document.getElementById('uploadOptionBtn').style.background = '#3b82f6';
+        document.getElementById('uploadOptionBtn').style.color = 'white';
+        document.getElementById('pathOptionBtn').style.background = 'white';
+        document.getElementById('pathOptionBtn').style.color = '#475569';
+      } else {
+        document.getElementById('asrUploadOption').classList.add('hidden');
+        document.getElementById('asrPathOption').classList.remove('hidden');
+        document.getElementById('uploadOptionBtn').style.background = 'white';
+        document.getElementById('uploadOptionBtn').style.color = '#475569';
+        document.getElementById('pathOptionBtn').style.background = '#3b82f6';
+        document.getElementById('pathOptionBtn').style.color = 'white';
+      }
+    }
+
+    // Mapping option switching
+    function switchMappingOption(option) {
+      if (option === 'upload') {
+        document.getElementById('mappingUploadOption').classList.remove('hidden');
+        document.getElementById('mappingPathOption').classList.add('hidden');
+        document.getElementById('mappingUploadOptionBtn').style.background = '#3b82f6';
+        document.getElementById('mappingUploadOptionBtn').style.color = 'white';
+        document.getElementById('mappingPathOptionBtn').style.background = 'white';
+        document.getElementById('mappingPathOptionBtn').style.color = '#475569';
+      } else {
+        document.getElementById('mappingUploadOption').classList.add('hidden');
+        document.getElementById('mappingPathOption').classList.remove('hidden');
+        document.getElementById('mappingUploadOptionBtn').style.background = 'white';
+        document.getElementById('mappingUploadOptionBtn').style.color = '#475569';
+        document.getElementById('mappingPathOptionBtn').style.background = '#3b82f6';
+        document.getElementById('mappingPathOptionBtn').style.color = 'white';
+      }
+    }
+
+    async function useASRPath() {
+      const path = document.getElementById('asrPathInput').value.trim();
+      console.log('ASR Path button clicked, path:', path);
+      
+      if (!path) {
+        showError('Please enter a file path');
+        return;
+      }
+
+      hideError();
+      
+      try {
+        console.log('Sending request to validate path...');
+        const response = await fetch(`${API_BASE}/api/use-local-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path, type: 'asr' })
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('Error response:', error);
+          throw new Error(error.message || 'Path validation failed');
+        }
+        
+        const result = await response.json();
+        console.log('Success result:', result);
+        
+        asrFile = result.file_path;
+        
+        document.getElementById('asrStatus').classList.remove('hidden');
+        document.getElementById('asrFileName').textContent = `${result.filename} (${result.file_size_mb} MB) - Local Path`;
+        
+        showInfo(`✓ Using local ASR file: ${result.file_size_mb} MB`);
+        checkFormComplete();
+        
+      } catch (error) {
+        console.error('Caught error:', error);
+        showError('Failed to use local path: ' + error.message);
+      }
+    }
+
+    async function useMappingPath() {
+      const path = document.getElementById('mappingPathInput').value.trim();
+      console.log('Mapping Path button clicked, path:', path);
+      
+      if (!path) {
+        showError('Please enter a file path');
+        return;
+      }
+
+      hideError();
+      
+      try {
+        console.log('Sending request to validate path...');
+        const response = await fetch(`${API_BASE}/api/use-local-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path, type: 'mapping' })
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('Error response:', error);
+          throw new Error(error.message || 'Path validation failed');
+        }
+        
+        const result = await response.json();
+        console.log('Success result:', result);
+        
+        mappingFile = result.file_path;
+        categoriesTxt = result.categories_txt;
+        
+        document.getElementById('mappingStatus').classList.remove('hidden');
+        document.getElementById('mappingFileName').textContent = `${result.filename} - Local Path`;
+        
+        showInfo('✓ Using local mapping file');
+        checkFormComplete();
+        
+      } catch (error) {
+        console.error('Caught error:', error);
+        showError('Failed to use local path: ' + error.message);
+      }
+    }
     
     async function handleASRFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
+      
+      // Show file size immediately
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      console.log(`Uploading file: ${file.name}, Size: ${fileSizeMB} MB`);
       
       showLoading('asr');
       hideError();
@@ -702,10 +1061,15 @@ Your response (intent only):`;
       formData.append('file', file);
       
       try {
+        const startTime = Date.now();
+        
         const response = await fetch(`${API_BASE}/api/upload-asr`, {
           method: 'POST',
           body: formData
         });
+        
+        const uploadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`Upload completed in ${uploadTime} seconds`);
         
         if (!response.ok) throw new Error('Upload failed');
         
@@ -713,13 +1077,14 @@ Your response (intent only):`;
         asrFile = result.file_path;
         
         document.getElementById('asrStatus').classList.remove('hidden');
-        document.getElementById('asrFileName').textContent = `${file.name} (${result.row_count.toLocaleString()} rows)`;
+        document.getElementById('asrFileName').textContent = `${file.name} (${result.file_size_mb} MB)`;
         hideLoading('asr');
         
-        showInfo(`✓ ASR file uploaded: ${result.row_count.toLocaleString()} rows`);
-        checkBothFilesUploaded();
+        showInfo(`✓ ASR file uploaded: ${result.file_size_mb} MB (${uploadTime}s)`);
+        checkFormComplete();
         
       } catch (error) {
+        console.error('Upload error:', error);
         showError('Failed to upload ASR file: ' + error.message);
         hideLoading('asr');
       }
@@ -752,7 +1117,7 @@ Your response (intent only):`;
         hideLoading('mapping');
         
         showInfo('✓ Mapping file uploaded and converted');
-        checkBothFilesUploaded();
+        checkFormComplete();
         
       } catch (error) {
         showError('Failed to upload mapping file: ' + error.message);
@@ -760,55 +1125,49 @@ Your response (intent only):`;
       }
     }
     
-    function checkBothFilesUploaded() {
-      if (asrFile && mappingFile) {
-        document.getElementById('companyCard').classList.remove('hidden');
-        document.getElementById('promptCard').classList.remove('hidden');
-      }
-    }
-    
     async function generateIntents() {
-      const companyName = document.getElementById('companyName').value.trim();
-      const companyDescription = document.getElementById('companyDescription').value.trim();
-      const promptTemplate = document.getElementById('promptTemplate').value;
-      const format = document.getElementById('formatSelect').value;
-      const maxCalls = parseInt(document.getElementById('maxCalls').value) || 100;
-      
-      if (!companyName || !companyDescription) {
+      // Capture user config
+      userConfig.companyName = document.getElementById('companyName').value.trim();
+      userConfig.companyDescription = document.getElementById('companyDescription').value.trim();
+      userConfig.promptTemplate = document.getElementById('promptTemplate').value;
+      userConfig.format = document.getElementById('formatSelect').value;
+      userConfig.maxCalls = parseInt(document.getElementById('maxCalls').value) || 100;
+      userConfig.maxWorkers = parseInt(document.getElementById('maxWorkers').value) || 3;
+
+      if (!userConfig.companyName || !userConfig.companyDescription) {
         showError('Please enter company name and description');
         return;
       }
       
-      if (maxCalls < 10 || maxCalls > 50000) {
+      if (userConfig.maxCalls < 10 || userConfig.maxCalls > 50000) {
         showError('Max calls must be between 10 and 50,000');
         return;
       }
       
       // Warn for large numbers
-      if (maxCalls > 1000) {
+      if (userConfig.maxCalls > 1000) {
         const proceed = confirm(
-          `You're about to process ${maxCalls.toLocaleString()} calls.\n` +
-          `This will take approximately ${calculateTime(maxCalls)}.\n\n` +
+          `You're about to process ${userConfig.maxCalls.toLocaleString()} calls.\n` +
+          `This will take approximately ${calculateTime(userConfig.maxCalls)}.\n\n` +
           `We recommend starting with 100-500 calls for testing.\n\n` +
-          `Continue with ${maxCalls.toLocaleString()} calls?`
+          `Continue with ${userConfig.maxCalls.toLocaleString()} calls?`
         );
         if (!proceed) return;
       }
       
       hideError();
-      document.getElementById('companyCard').classList.add('hidden');
-      document.getElementById('promptCard').classList.add('hidden');
       document.getElementById('progressCard').classList.remove('hidden');
       document.getElementById('logContainer').innerHTML = '';
       
       const requestData = {
         input_csv: asrFile,
         categories_txt: categoriesTxt,
-        company_name: companyName,
-        company_description: companyDescription,
-        prompt_template: promptTemplate,
-        format: format,
-        max_calls: maxCalls
+        company_name: userConfig.companyName,
+        company_description: userConfig.companyDescription,
+        prompt_template: userConfig.promptTemplate,
+        format: userConfig.format,
+        max_calls: userConfig.maxCalls,
+        max_workers: userConfig.maxWorkers
       };
       
       try {
@@ -838,13 +1197,26 @@ Your response (intent only):`;
                 if (data.type === 'progress') {
                   addLogLine(data.message);
                 } else if (data.type === 'complete') {
-                  intentData = data.results.intents;
-                  showIntentSelection(data.results);
-                } else if (data.type === 'error') {
+                    // 🧭 Phase 1: Generate Intents (results contain an "intents" array)
+                    if (data.results && Array.isArray(data.results.intents)) {
+                      intentData = data.results.intents;
+                      showIntentSelection(data.results);
+                      return;
+                    }
+
+                    // 🧭 Phase 3: Analysis complete (results contain an "output_dir")
+                    if (data.results && data.results.output_dir) {
+                      const promptCard = document.getElementById('promptEditorCard');
+                      if (promptCard) promptCard.classList.add('hidden'); // hide prompt
+                      showDownloadSection(data.results);
+                      return;
+                    }
+
+                    // Unknown "complete" payload → log for debugging
+                    console.warn('⚠️ Unrecognized complete payload:', data);
+                  } else if (data.type === 'error') {
                   showError(data.message);
                   document.getElementById('progressCard').classList.add('hidden');
-                  document.getElementById('companyCard').classList.remove('hidden');
-                  document.getElementById('promptCard').classList.remove('hidden');
                 }
               } catch (e) {
                 console.error('Failed to parse SSE:', e);
@@ -855,8 +1227,6 @@ Your response (intent only):`;
       } catch (error) {
         showError('Failed to generate intents: ' + error.message);
         document.getElementById('progressCard').classList.add('hidden');
-        document.getElementById('companyCard').classList.remove('hidden');
-        document.getElementById('promptCard').classList.remove('hidden');
       }
     }
     
@@ -871,6 +1241,20 @@ Your response (intent only):`;
     function showIntentSelection(results) {
       document.getElementById('phase1').classList.add('hidden');
       document.getElementById('phase2').classList.remove('hidden');
+      
+      // Display coverage statistics
+      const inputTotal = userConfig.maxCalls; // set earlier from the form
+      const totalTranscripts = results.total_processed || userConfig.maxCalls;
+      const intentsAssigned = results.intents_assigned || results.total_intents || 0;
+      const coveragePercentage = totalTranscripts > 0 ? 
+        Math.round((intentsAssigned / totalTranscripts) * 100) : 0;
+      
+      document.getElementById('totalTranscriptsInput').textContent = inputTotal.toLocaleString();
+      document.getElementById('totalTranscripts').textContent = totalTranscripts.toLocaleString();
+      document.getElementById('intentsAssigned').textContent = intentsAssigned.toLocaleString();
+      document.getElementById('coverageRate').textContent = coveragePercentage + '%';
+      document.getElementById('uniqueIntents').textContent = results.total_intents.toLocaleString();
+      
       document.getElementById('intentCount').textContent = 
         `${results.total_intents} unique intents identified`;
       
@@ -909,19 +1293,22 @@ Your response (intent only):`;
       document.getElementById('phase2').classList.add('hidden');
       document.getElementById('phase3').classList.remove('hidden');
       
+      // Display selected intent
       document.getElementById('selectedIntentName').textContent = selectedIntent.intent;
       document.getElementById('selectedIntentVolume').textContent = selectedIntent.volume;
       document.getElementById('selectedIntentPercent').textContent = selectedIntent.percentage + '%';
+      
+      // Show company name in config (reusing from Phase 1)
+      document.getElementById('displayCompanyName').textContent = userConfig.companyName;
     }
     
     async function runAnalysis() {
-      const clientName = document.getElementById('clientName').value.trim();
       const outputFolder = document.getElementById('outputFolder').value.trim();
       const batchSize = parseInt(document.getElementById('batchSize').value);
       const workers = parseInt(document.getElementById('workers').value);
       
-      if (!clientName) {
-        showError('Please enter client name');
+      if (!outputFolder) {
+        showError('Please enter output folder');
         return;
       }
       
@@ -930,15 +1317,18 @@ Your response (intent only):`;
       document.getElementById('actionButtons').classList.add('hidden');
       document.getElementById('analysisProgressCard').classList.remove('hidden');
       document.getElementById('analysisLogContainer').innerHTML = '';
+      document.getElementById('promptEditorCard').classList.add('hidden');
       
       const requestData = {
         intent: selectedIntent.intent,
         intent_mapping_file: window.generatedMappingFile,
         asr_file: asrFile,
-        client: clientName,
+        client: userConfig.companyName, // Reuse from Phase 1
+        company_description: userConfig.companyDescription, // Reuse from Phase 1
         output_dir: outputFolder,
         batch_size: batchSize,
-        workers: workers
+        workers: workers,
+        analysis_prompt: document.getElementById('analysisPrompt').value
       };
       
       try {
@@ -975,6 +1365,7 @@ Your response (intent only):`;
                   document.getElementById('analysisProgressCard').classList.add('hidden');
                   document.getElementById('configForm').classList.remove('hidden');
                   document.getElementById('actionButtons').classList.remove('hidden');
+                  document.getElementById('promptEditorCard').classList.remove('hidden');
                 }
               } catch (e) {
                 console.error('Failed to parse SSE:', e);
@@ -987,6 +1378,7 @@ Your response (intent only):`;
         document.getElementById('analysisProgressCard').classList.add('hidden');
         document.getElementById('configForm').classList.remove('hidden');
         document.getElementById('actionButtons').classList.remove('hidden');
+        document.getElementById('promptEditorCard').classList.remove('hidden');
       }
     }
     
@@ -996,6 +1388,7 @@ Your response (intent only):`;
       document.getElementById('resultsDisplay').classList.remove('hidden');
       document.getElementById('resultsSummary').textContent = 
         `Successfully processed ${results.total_calls} calls`;
+      document.getElementById('promptEditorCard').classList.add('hidden');
     }
     
     async function downloadFile(fileType) {
@@ -1034,6 +1427,7 @@ Your response (intent only):`;
       document.getElementById('analysisProgressCard').classList.add('hidden');
       document.getElementById('configForm').classList.remove('hidden');
       document.getElementById('actionButtons').classList.remove('hidden');
+      document.getElementById('promptEditorCard').classList.remove('hidden');
     }
     
     function resetToDefaultPrompt() {
@@ -1090,7 +1484,7 @@ Your response (intent only):`;
       const icon = document.getElementById(type + 'Icon');
       const title = document.getElementById(type + 'Title');
       icon.innerHTML = '<div class="spinner"></div>';
-      title.textContent = 'Processing...';
+      title.textContent = 'Uploading...';
     }
     
     function hideLoading(type) {
@@ -1133,6 +1527,9 @@ Your response (intent only):`;
     function showInfo(message) {
       document.getElementById('infoMessage').innerHTML = message;
       document.getElementById('infoAlert').classList.remove('hidden');
+      setTimeout(() => {
+        document.getElementById('infoAlert').classList.add('hidden');
+      }, 5000);
     }
     
     function hideInfo() {

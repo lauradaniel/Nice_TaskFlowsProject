@@ -339,6 +339,8 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
+            # NEW: capture the prompt from the web app
+            analysis_prompt = data.get('analysis_prompt', '')
             
             self.send_response(200)
             self.send_header('Content-type', 'text/event-stream')
@@ -352,7 +354,8 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             prompt_template = data.get('prompt_template', STEP1_GENERATE_INTENTS_PROMPT)
             csv_format = data.get('format', 'whisper')
             max_calls = data.get('max_calls', 10000)
-            
+            max_workers = int(data.get('max_workers', 3))
+
             self.send_sse({'type': 'progress', 'message': '🚀 Starting Intent Generation Pipeline'})
             self.send_sse({'type': 'progress', 'message': '=' * 80})
             
@@ -388,7 +391,9 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Step 0 failed: {str(e)}'})
                 return
-            
+            # After Step 0:
+            self.track_coverage("Step 0", max_calls, len(conversations), "conversations extracted")
+
             # STEP 1
             self.send_sse({'type': 'progress', 'message': '\n🤖 STEP 1: Generating Intents'})
             
@@ -414,7 +419,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                     model_id='anthropic.claude-3-5-sonnet-20240620-v1:0',
                     min_words=5,
                     max_words=10,
-                    max_workers=10,
+                    max_workers=max_workers,
                     max_tokens=256
                 )
                 
@@ -422,11 +427,30 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 generator.create_intent_csv(step1_json, step1_csv, additional_columns=[])
                 
                 self.send_sse({'type': 'progress', 'message': f'  ✅ Step 1 Complete'})
-                
+
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Step 1 failed: {str(e)}'})
                 return
+            # After Step 1:
+            df_step1 = pd.read_csv(step1_csv, sep='\t')
+            intents_with_data = df_step1.dropna(subset=['Intent'])
+            self.track_coverage("Step 1", len(conversations), len(intents_with_data), "intents generated")
+
+            # In simple_api_server.py, in handle_generate_intents method
+            # Find the Step 2 section (around line 340-380) and replace it with this:
             
+            df_step1 = pd.read_csv(step1_csv, sep='\t')
+
+            # --- CLEAN ERROR MESSAGES ---
+            mask_error = df_step1['Intent'].astype(str).str.startswith('Error:')
+            if mask_error.any():
+                count = mask_error.sum()
+                self.send_sse({'type': 'progress',
+                            'message': f'  ⚠️  Removing {count} throttling-error intents'})
+                df_step1.loc[mask_error, 'Intent'] = 'General Inquiry'
+
+            df_step1.to_csv(step1_csv, sep='\t', index=False)
+
             # STEP 2
             self.send_sse({'type': 'progress', 'message': '\n🏷️  STEP 2: Mapping to Categories'})
 
@@ -505,6 +529,11 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 merged_df['Intent_Category'] = merged_df['Intent_Category'].str.replace(r',.*', '', regex=True)
                 merged_df.to_csv(step2_csv, sep='\t', index=False)
                 
+                # ✅ CALCULATE score_distribution HERE before using it
+                if 'L3_Score' in merged_df.columns:
+                    score_distribution = merged_df['L3_Score'].value_counts().sort_index()
+                    self.send_sse({'type': 'progress', 'message': f'  Score distribution: {dict(score_distribution)}'})
+                
                 self.send_sse({'type': 'progress', 'message': f'  ✅ Step 2 Complete: {len(merged_df)} intents categorized'})
                 
             except Exception as e:
@@ -513,19 +542,36 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 traceback.print_exc()
                 self.send_sse({'type': 'error', 'message': f'Step 2 failed: {str(e)}'})
                 return
-            
-            # Extract intents
+
+            # ✅ THEN call diagnostics AFTER Step 2 completes
             try:
-                intents = self.extract_intents(step2_csv)
-                self.send_sse({'type': 'progress', 'message': f'✅ COMPLETE! {len(intents)} intents'})
+                self.diagnose_coverage_issues(step0_json, step1_csv, step2_csv)
+                self.analyze_low_score_intents(step2_csv)
+            except Exception as diag_error:
+                self.send_sse({'type': 'progress', 'message': f'  ⚠️  Diagnostic failed: {str(diag_error)}'})
+
+            # Extract intents with new return values
+            try:
+                intents, total_calls, calls_with_intents, unique_intents = self.extract_intents(step2_csv)
+                
+                coverage_pct = (calls_with_intents / total_calls * 100) if total_calls > 0 else 0
+                
+                self.send_sse({'type': 'progress', 'message': f'✅ COMPLETE!'})
+                self.send_sse({'type': 'progress', 'message': f'   Unique intent types: {unique_intents}'})
+                self.send_sse({'type': 'progress', 'message': f'   Coverage: {calls_with_intents}/{total_calls} calls ({coverage_pct:.1f}%)'})
+                
                 self.send_sse({'type': 'complete', 'results': {
                     'intents': intents,
                     'intent_mapping_file': step2_csv,
-                    'total_intents': len(intents),
+                    'total_intents': unique_intents,
+                    'total_processed': total_calls,
+                    'intents_assigned': calls_with_intents,
                     'work_dir': work_dir
                 }})
             except Exception as e:
                 self.send_sse({'type': 'error', 'message': f'Failed: {str(e)}'})
+                import traceback
+                traceback.print_exc()
             
         except Exception as e:
             import traceback
@@ -534,43 +580,171 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def extract_intents(self, intent_file_path):
         """Extract unique intents with volume from the mapping file"""
-        df = pd.read_csv(intent_file_path, sep='\t')
+        df_full = pd.read_csv(intent_file_path, sep='\t')
         
-        if 'L3_Score' in df.columns:
-            df = df[df['L3_Score'] == 5]
+        self.send_sse({'type': 'progress', 'message': f'\n📊 Analyzing Intent Coverage'})
+        self.send_sse({'type': 'progress', 'message': f'  Total rows in mapping file: {len(df_full)}'})
         
-        if 'Intent_Category' in df.columns:
-            intent_counts = df['Intent_Category'].value_counts()
-            total = len(df)
-            intents = []
+        # Report score distribution BEFORE filtering
+        if 'L3_Score' in df_full.columns:
+            score_dist = df_full['L3_Score'].value_counts().sort_index()
+            self.send_sse({'type': 'progress', 'message': f'  Score Distribution:'})
+            for score in sorted(score_dist.keys(), reverse=True):
+                count = score_dist[score]
+                pct = count / len(df_full) * 100
+                self.send_sse({'type': 'progress', 'message': f'    Score {score}: {count} ({pct:.1f}%)'})
             
-            for intent, volume in intent_counts.items():
-                parts = intent.split(' - ')
-                intents.append({
-                    'intent': intent,
-                    'volume': int(volume),
-                    'percentage': round((volume / total * 100), 1) if total > 0 else 0,
-                    'level1': parts[0].strip() if len(parts) > 0 else 'General',
-                    'level2': parts[1].strip() if len(parts) > 1 else 'Support',
-                    'level3': parts[2].strip() if len(parts) > 2 else 'Inquiry'
-                })
+            # ✅ CHANGE: Use more lenient filtering (4 and 5 instead of only 5)
+            df = df_full[df_full['L3_Score'] >= 4].copy()
             
-            return sorted(intents, key=lambda x: x['volume'], reverse=True)
+            coverage = len(df) / len(df_full) * 100 if len(df_full) > 0 else 0
+            self.send_sse({'type': 'progress', 'message': f'  ✅ Using L3_Score ≥ 4: {len(df)}/{len(df_full)} intents ({coverage:.1f}% coverage)'})
+            
+            # Report what we'd get with different thresholds
+            for threshold in [5, 4, 3]:
+                count = len(df_full[df_full['L3_Score'] >= threshold])
+                pct = count / len(df_full) * 100
+                self.send_sse({'type': 'progress', 'message': f'    If using ≥{threshold}: {count} intents ({pct:.1f}%)'})
+        else:
+            df = df_full.copy()
+            self.send_sse({'type': 'progress', 'message': f'  ⚠️  No L3_Score column found, using all intents'})
         
-        return []
+        if len(df) == 0:
+            self.send_sse({'type': 'progress', 'message': '  ❌ No intents passed filtering!'})
+            self.send_sse({'type': 'progress', 'message': '  💡 Recommendation: Lower the score threshold or improve category matching'})
+            return []
+        
+        # Check for Intent_Category column
+        if 'Intent_Category' not in df.columns:
+            self.send_sse({'type': 'progress', 'message': f'  ❌ Missing Intent_Category column. Available: {list(df.columns)}'})
+            return []
+        
+        # Count intents and calculate statistics
+        intent_counts = df['Intent_Category'].value_counts()
+        total = len(df)
+        total_transcripts = len(df_full)  # Use original count for percentage
+        intents = []
+        
+        for intent, volume in intent_counts.items():
+            parts = intent.split(' - ')
+            intents.append({
+                'intent': intent,
+                'volume': int(volume),
+                'percentage': round((volume / total_transcripts * 100), 1),  # % of ALL transcripts
+                'level1': parts[0].strip() if len(parts) > 0 else 'General',
+                'level2': parts[1].strip() if len(parts) > 1 else 'Support',
+                'level3': parts[2].strip() if len(parts) > 2 else 'Inquiry'
+            })
+        
+        sorted_intents = sorted(intents, key=lambda x: x['volume'], reverse=True)
+        
+        # Report top intents
+        self.send_sse({'type': 'progress', 'message': f'\n🏆 Top 5 Intents:'})
+        for i, intent in enumerate(sorted_intents[:5], 1):
+            self.send_sse({'type': 'progress', 'message': 
+                f"  {i}. {intent['intent']}: {intent['volume']} calls ({intent['percentage']}%)"})
+        # Add these calculations before the return statement:
+        total_calls = len(df_full)
+        calls_with_intents = len(df)
+        unique_intent_types = len(intent_counts)
+
+            # ✅ RETURN ALL THE STATS
+        # Return: (intents_list, total_calls, calls_with_intents, unique_intent_types)
+        return sorted_intents, total_calls, calls_with_intents, unique_intent_types
     
+    def diagnose_coverage_issues(self, step0_json, step1_csv, step2_csv):
+        """Diagnose where coverage is being lost in the pipeline"""
+        self.send_sse({'type': 'progress', 'message': '\n🔍 COVERAGE DIAGNOSTIC REPORT'})
+        self.send_sse({'type': 'progress', 'message': '=' * 60})
+        
+        # Step 0: Conversations
+        with open(step0_json, 'r') as f:
+            step0_data = json.load(f)
+        # tolerate either plain list or dict wrapper
+        if isinstance(step0_data, dict) and 'conversations' in step0_data:
+            total_conversations = len(step0_data['conversations'])
+        elif isinstance(step0_data, list):
+            total_conversations = len(step0_data)
+        else:
+            total_conversations = step0_data.get('total_conversations', 0) if isinstance(step0_data, dict) else 0
+        self.send_sse({'type': 'progress',
+                    'message': f'Step 0 - Input Conversations: {total_conversations}'})
+        self.send_sse({'type': 'progress', 'message': f'Step 0 - Input Conversations: {total_conversations}'})
+        
+        # Step 1: Intent Generation
+        df_step1 = pd.read_csv(step1_csv, sep='\t')
+        intents_generated = len(df_step1.dropna(subset=['Intent']))
+        intents_missing = len(df_step1) - intents_generated
+        step1_coverage = (intents_generated / total_conversations * 100) if total_conversations > 0 else 0
+        
+        self.send_sse({'type': 'progress', 'message': f'Step 1 - Intents Generated: {intents_generated}/{total_conversations} ({step1_coverage:.1f}%)'})
+        if intents_missing > 0:
+            self.send_sse({'type': 'progress', 'message': f'  ⚠️  {intents_missing} conversations got no intent (prompt may be failing)'})
+        
+        # Step 2: Category Mapping
+        df_step2 = pd.read_csv(step2_csv, sep='\t')
+        total_mapped = len(df_step2)
+        
+        self.send_sse({'type': 'progress', 'message': f'Step 2 - Categorized: {total_mapped}/{intents_generated}'})
+        
+        if 'L3_Score' in df_step2.columns:
+            score_dist = df_step2['L3_Score'].value_counts().sort_index()
+            self.send_sse({'type': 'progress', 'message': f'  Score Distribution:'})
+            
+            for score in sorted(score_dist.keys(), reverse=True):
+                count = score_dist[score]
+                pct_of_total = count / total_conversations * 100
+                pct_of_mapped = count / total_mapped * 100
+                self.send_sse({'type': 'progress', 'message': 
+                    f'    Score {score}: {count} ({pct_of_mapped:.1f}% of mapped, {pct_of_total:.1f}% of total)'})
+            
+            # Show coverage at different thresholds
+            self.send_sse({'type': 'progress', 'message': f'\n  Coverage by Score Threshold:'})
+            for threshold in [5, 4, 3, 2]:
+                count = len(df_step2[df_step2['L3_Score'] >= threshold])
+                pct = count / total_conversations * 100
+                self.send_sse({'type': 'progress', 'message': 
+                    f'    Using ≥{threshold}: {count}/{total_conversations} ({pct:.1f}% coverage)'})
+        
+        # Recommendations
+        self.send_sse({'type': 'progress', 'message': f'\n💡 RECOMMENDATIONS:'})
+        
+        if step1_coverage < 90:
+            self.send_sse({'type': 'progress', 'message': 
+                f'  1. Improve Step 1 prompt - only {step1_coverage:.1f}% getting intents'})
+        
+        if 'L3_Score' in df_step2.columns:
+            high_quality = len(df_step2[df_step2['L3_Score'] >= 4])
+            if high_quality / total_conversations < 0.5:
+                self.send_sse({'type': 'progress', 'message': 
+                    f'  2. Review category taxonomy - only {high_quality/total_conversations*100:.1f}% getting good matches'})
+                self.send_sse({'type': 'progress', 'message': 
+                    f'     Categories may not match actual customer intents'})
+        
+        self.send_sse({'type': 'progress', 'message': '=' * 60})
+        
+    def track_coverage(self, step_name, total, successful, details=""):
+        """Track and report coverage at each pipeline step"""
+        coverage_pct = (successful / total * 100) if total > 0 else 0
+        message = f'  📊 {step_name} Coverage: {successful}/{total} ({coverage_pct:.1f}%)'
+        if details:
+            message += f' - {details}'
+        self.send_sse({'type': 'progress', 'message': message})
+        return coverage_pct
+
     def handle_filter_and_run(self):
         """Filter ASR data by intent and run pipeline"""
         try:
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
-            
+            analysis_prompt = data.get('analysis_prompt', '')
+
             self.send_response(200)
             self.send_header('Content-type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            
+
             intent = data['intent']
             intent_mapping_file = data['intent_mapping_file']
             asr_file = data['asr_file']
@@ -578,24 +752,27 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             output_dir = data['output_dir']
             batch_size = data.get('batch_size', 3)
             workers = data.get('workers', 3)
-            
+
             self.send_sse({'type': 'progress', 'message': f"Starting analysis for: {intent}"})
             self.send_sse({'type': 'progress', 'message': '=' * 80})
-            
+
             self.send_sse({'type': 'progress', 'message': 'Filtering ASR data...'})
-            
+
             filenames = self.get_filenames_for_intent(intent_mapping_file, intent)
             self.send_sse({'type': 'progress', 'message': f'  Found {len(filenames)} calls'})
-            
+
             filtered_asr_path = self.filter_asr_by_filenames(asr_file, filenames, intent)
             self.send_sse({'type': 'progress', 'message': f'  ✅ Filtered ASR created'})
-            
+
             self.send_sse({'type': 'progress', 'message': 'Running analysis pipeline...'})
-            
+
             if not os.path.exists('universal_pipeline.py'):
                 self.send_sse({'type': 'error', 'message': 'universal_pipeline.py not found'})
                 return
-            
+
+            # ---- NEW: safer subprocess run with stderr capture ----
+            import subprocess, traceback
+
             cmd = [
                 sys.executable, 'universal_pipeline.py',
                 '--client', client,
@@ -603,43 +780,53 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
                 '--input', filtered_asr_path,
                 '--output-dir', output_dir,
                 '--batch-size', str(batch_size),
-                '--workers', str(workers)
+                '--workers', str(workers),
+                '--prompt', analysis_prompt,
             ]
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            
-            for line in process.stdout:
-                line = line.strip()
-                if line:
-                    self.send_sse({'type': 'progress', 'message': f"  {line}"})
-            
-            return_code = process.wait()
-            
-            if return_code == 0:
-                client_safe = re.sub(r'\W+', '', client)
-                intent_safe = re.sub(r'\W+', '', intent)
-                output_path = f"{output_dir}/{client_safe}/{intent_safe}"
-                
-                results_file = f"{output_path}/analysis_results.csv"
-                total_calls = 0
-                if os.path.exists(results_file):
-                    with open(results_file, 'r') as f:
-                        total_calls = sum(1 for _ in f) - 1
-                
-                self.send_sse({'type': 'progress', 'message': f"✅ Complete! {total_calls} calls processed"})
-                self.send_sse({'type': 'complete', 'results': {
-                    'output_dir': output_path,
-                    'total_calls': total_calls,
-                    'batches': batch_size,
-                    'filtered_asr_file': filtered_asr_path
-                }})
-            else:
-                self.send_sse({'type': 'error', 'message': f'Pipeline failed: exit code {return_code}'})
-            
+
+            self.send_sse({'type': 'progress', 'message': f'🔧 Executing: {" ".join(cmd)}'})
+
+            proc = subprocess.run(cmd, text=True, capture_output=True)
+
+            # Stream stdout to frontend
+            if proc.stdout:
+                for line in proc.stdout.splitlines():
+                    if line.strip():
+                        self.send_sse({'type': 'progress', 'message': line.strip()})
+
+            # Handle errors
+            if proc.returncode != 0:
+                error_msg = f"Pipeline failed: exit code {proc.returncode}"
+                self.send_sse({'type': 'error', 'message': error_msg})
+                self.send_sse({'type': 'progress', 'message': proc.stderr or '(no stderr output)'})
+                print("=== PIPELINE STDERR ===")
+                print(proc.stderr or "(no stderr output)")
+                print("=======================")
+                return
+
+            # ---- If success ----
+            client_safe = re.sub(r'\W+', '', client)
+            intent_safe = re.sub(r'\W+', '', intent)
+            output_path = f"{output_dir}/{client_safe}/{intent_safe}"
+
+            results_file = f"{output_path}/analysis_results.csv"
+            total_calls = 0
+            if os.path.exists(results_file):
+                with open(results_file, 'r') as f:
+                    total_calls = sum(1 for _ in f) - 1
+
+            self.send_sse({'type': 'progress', 'message': f"✅ Complete! {total_calls} calls processed"})
+            self.send_sse({'type': 'complete', 'results': {
+                'output_dir': output_path,
+                'total_calls': total_calls,
+                'batches': batch_size,
+                'filtered_asr_file': filtered_asr_path
+            }})
         except Exception as e:
             import traceback
             self.send_sse({'type': 'error', 'message': f'Exception: {str(e)}'})
             self.send_sse({'type': 'progress', 'message': traceback.format_exc()})
+
     
     def get_filenames_for_intent(self, intent_file, target_intent):
         """Get list of filenames for a specific intent"""
@@ -648,7 +835,7 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         if 'Intent_Category' in df.columns and 'Filename' in df.columns:
             filtered = df[df['Intent_Category'] == target_intent]
             if 'L3_Score' in df.columns:
-                filtered = filtered[filtered['L3_Score'] == 5]
+                filtered = filtered[filtered['L3_Score'] >= 4]
             return set(filtered['Filename'].tolist())
         
         return set()
